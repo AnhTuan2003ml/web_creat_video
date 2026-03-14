@@ -1,0 +1,24 @@
+﻿{
+  "API": "https://server.autovideo9999.store/",
+  "MODEL_AI": 1,
+  "API_CHAT": "AIzaSyBXCu326KqSa0LU6g4rPKd_ijMTSQVqvTQ",
+  "VERSION": "3.2.3",
+  "TAI_KHOAN": {
+    "VEO": {
+      "GMAIL": "hoangngochiep62@gmail.com",
+      "PASSWORD": "hzhzhzhz"
+    },
+    "GROK": {
+      "GMAIL": "yuliagoodvind190999@hotmail.com",
+      "PASSWORD": "Chatgpt@123123"
+    },
+    "KLING": {
+      "GMAIL": "nghia.nguyen@klingsai.com",
+      "PASSWORD": "Nghia12032002@"
+    }
+  },
+  "TTS": "ak_MTU0NDM1OmhvYW5nbmdvY2hpZXB2aWRlb0BnbWFpbC5jb206UWZKNTVJd2NTN0k=.2f3435fdbc4e",
+  "ACCOUNT_ID": "EoUIJq59FoftSxX9g5J8",
+  "RECAPTCHA": "xDMddfCrRiW7nq5CkR",
+  "PROJECT": "41bed3ad-7d07-43e4-999e-07d45a44dc"
+}

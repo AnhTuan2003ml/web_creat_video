@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoVideo999+ Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-dark: #080808;
+            --sidebar-bg: #111111;
+            --card-bg: #1a1a1a;
+            --primary-red: #ff3131;
+            --accent-blue: #007bff;
+            --accent-cyan: #00e5ff;
+            --accent-purple: #9d50bb;
+            --neon-green: #39ff14;
+            --text-main: #ffffff;
+            --gradient-btn: linear-gradient(45deg, #6e48aa, #9d50bb);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* --- SIDEBAR TRÁI --- */
+        #sidebar {
+            width: 340px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid #222;
+            padding: 25px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .logo {
+            text-align: center;
+            font-size: 26px;
+            font-weight: 900;
+            margin-bottom: 5px;
+            background: linear-gradient(to right, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .info-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid #222;
+            border-radius: 12px;
+            padding: 12px;
+            position: relative;
+        }
+        
+        .info-card .label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; display: block;}
+        .info-card .value { font-family: 'JetBrains Mono', monospace; font-weight: 800; display: flex; align-items: center; justify-content: space-between; }
+        .credit-value { color: var(--neon-green); font-size: 20px; }
+        .id-value { color: #ccc; font-size: 12px; word-break: break-all; gap: 10px; }
+
+        .copy-btn {
+            cursor: pointer;
+            color: var(--accent-cyan);
+            transition: 0.2s;
+            padding: 5px;
+        }
+        .copy-btn:hover { color: #fff; transform: scale(1.1); }
+
+        .section-title { font-size: 11px; color: #444; text-transform: uppercase; margin-top: 10px; border-bottom: 1px solid #222; padding-bottom: 5px; font-weight: bold; }
+
+        .input-control {
+            width: 100%;
+            background: #000;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 8px 10px;
+            border-radius: 6px;
+            outline: none;
+            font-size: 13px;
+            margin-top: 5px;
+        }
+        .input-control:focus { border-color: var(--accent-cyan); }
+
+        .group-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid #222;
+            border-radius: 10px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .random-inline {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #222;
+            cursor: pointer;
+        }
+        .random-inline input { width: 16px; height: 16px; accent-color: var(--accent-purple); }
+        .random-inline span { font-size: 12px; color: var(--accent-purple); font-weight: bold; }
+
+        .btn {
+            border: none; padding: 10px; border-radius: 5px;
+            cursor: pointer; font-weight: bold; text-transform: uppercase; font-size: 11px;
+            display: flex; align-items: center; justify-content: center; gap: 5px;
+            transition: 0.3s;
+        }
+        
+        /* Màu sắc nút thiết lập */
+        .btn-settings { 
+            background: var(--gradient-btn); 
+            color: white; 
+            box-shadow: 0 4px 15px rgba(157, 80, 187, 0.3);
+        }
+        .btn-settings:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        /* Nút nghe thử đẹp hơn */
+        .btn-preview { 
+            background: rgba(0, 229, 255, 0.1); 
+            border: 1px solid var(--accent-cyan); 
+            color: var(--accent-cyan);
+        }
+        .btn-preview:hover { background: var(--accent-cyan); color: #000; }
+
+        .btn-gold { background: var(--accent-cyan); color: #000; }
+        .btn-delete { background: rgba(255, 49, 49, 0.1); color: var(--primary-red); border: 1px solid var(--primary-red); }
+        .btn-delete:hover { background: var(--primary-red); color: #fff; }
+
+        /* --- VÙNG CHÍNH --- */
+        #main-wrapper { flex: 1; display: flex; flex-direction: column; }
+        header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px solid #222; }
+        
+        .horizontal-tabs { display: flex; gap: 12px; }
+        .tab-item {
+            flex: 1; background: #1a1a1a; border: 1px solid #333; 
+            color: #666; padding: 14px; text-align: center; border-radius: 8px; cursor: pointer;
+            font-weight: 800; text-transform: uppercase; font-size: 13px; transition: 0.3s;
+        }
+        .tab-item.active { 
+            border-color: var(--accent-cyan); 
+            background: rgba(0, 229, 255, 0.05); 
+            color: var(--accent-cyan); 
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+        }
+
+        .workspace { padding: 30px; overflow-y: auto; }
+        
+        .task-table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 12px; overflow: hidden; }
+        .task-table th { background: #222; color: var(--accent-cyan); padding: 18px; text-align: left; font-size: 12px; text-transform: uppercase; }
+        .task-table td { padding: 18px; border-bottom: 1px solid #222; font-size: 14px; color: #ccc; }
+        
+        .status-badge {
+            padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: bold;
+            white-space: nowrap; display: inline-block;
+            background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border: 1px solid var(--neon-green);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="logo">AutoVideo999+</div>
+        
+        <div class="info-card">
+            <span class="label">AI Credit Balance</span>
+            <div class="value credit-value"><i class="fas fa-coins"></i> 1,250.00</div>
+        </div>
+
+        <div class="info-card">
+            <span class="label">User ID</span>
+            <div class="value id-value">
+                <span id="userId">EoUIJq59FoftSxX9g5J8</span>
+                <i class="fas fa-copy copy-btn" onclick="copyId()" title="Sao chép ID"></i>
+            </div>
+        </div>
+
+        <div class="section-title">Quản lý tài khoản</div>
+        <div class="group-box">
+            <div>
+                <span class="label">Model AI Đang dùng</span>
+                <select class="input-control">
+                    <option>Veo3 (Google)</option>
+                    <option>Grok (X-AI)</option>
+                    <option>Kling AI</option>
+                </select>
+            </div>
+            <button class="btn btn-settings"><i class="fas fa-user-shield"></i> THIẾT LẬP TÀI KHOẢN</button>
+        </div>
+
+        <div class="section-title">Cấu hình Output</div>
+        <div class="group-box" style="flex-direction: row; gap: 8px;">
+            <div style="flex: 1;">
+                <span class="label">Chất lượng</span>
+                <select class="input-control">
+                    <option selected>1080p</option>
+                    <option>720p</option>
+                </select>
+            </div>
+            <div style="flex: 1;">
+                <span class="label">Tỉ lệ</span>
+                <select class="input-control">
+                    <option selected>9:16</option>
+                    <option>16:9</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section-title">Âm thanh & Xử lý</div>
+        <div class="group-box">
+            <div>
+                <span class="label">Nhạc nền video</span>
+                <select class="input-control" id="musicSelect">
+                    <option selected>None (Mặc định)</option>
+                    <option>vibrant-fashion.mp3</option>
+                    <option>cinematic-bgm.mp3</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <button class="btn btn-gold" style="grid-column: span 2; background: var(--accent-purple); color: white;">+ Thêm âm thanh</button>
+                <button class="btn btn-preview"><i class="fas fa-play"></i> Nghe thử</button>
+                <button class="btn btn-delete" onclick="document.getElementById('musicSelect').value='None (Mặc định)'">
+                    <i class="fas fa-trash-alt"></i> Xóa
+                </button>
+            </div>
+            <label class="random-inline">
+                <input type="checkbox" checked>
+                <span>Chế độ Random nhạc</span>
+            </label>
+        </div>
+
+        <button class="btn" style="width: 100%; padding: 15px; margin-top: auto; border: 1px solid #333; background: transparent; color: #888;">
+            <i class="fas fa-folder-open"></i> THƯ MỤC KẾT QUẢ
+        </button>
+    </div>
+
+    <div id="main-wrapper">
+        <header>
+            <div class="horizontal-tabs">
+                <div class="tab-item active">Home</div>
+                <div class="tab-item">Clone Video</div>
+                <div class="tab-item">Tạo Ảnh</div>
+                <div class="tab-item">Tạo Video</div>
+                <div class="tab-item">KLing</div>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <h2 style="margin-top: 0; font-weight: 900; color: #fff;">DANH SÁCH TÁC VỤ</h2>
+            
+            <table class="task-table">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">STT</th>
+                        <th>Dự Án</th>
+                        <th>Model</th>
+                        <th>Thời gian</th>
+                        <th style="text-align: center;">Trạng thái</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>01</td>
+                        <td>Fashion Summer Campaign</td>
+                        <td>Veo3</td>
+                        <td>14/03 23:10</td>
+                        <td style="text-align: center;"><span class="status-badge">Hoàn thành</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function copyId() {
+            const idText = document.getElementById('userId').innerText;
+            navigator.clipboard.writeText(idText).then(() => {
+                alert('Đã sao chép User ID thành công!');
+            });
+        }
+    </script>
+</body>
+</html>

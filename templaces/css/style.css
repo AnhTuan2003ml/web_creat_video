@@ -1,0 +1,106 @@
+:root {
+    --bg-dark: #080808;
+    --sidebar-bg: #111111;
+    --card-bg: #1a1a1a;
+    --primary-red: #ff3131;
+    --accent-cyan: #00e5ff;
+    --accent-purple: #9d50bb;
+    --neon-green: #39ff14;
+    --text-main: #ffffff;
+    --border-color: #222;
+    --gradient-btn: linear-gradient(45deg, #6e48aa, #9d50bb);
+}
+
+/* THEME LIGHT */
+body.theme-light {
+    --bg-dark: #f0f2f5;
+    --sidebar-bg: #ffffff;
+    --card-bg: #ffffff;
+    --text-main: #1a1a1a;
+    --border-color: #ddd;
+    --accent-cyan: #007bff;
+}
+
+/* THEME HACKER */
+body.theme-hacker {
+    --bg-dark: #000;
+    --sidebar-bg: #000;
+    --card-bg: #050505;
+    --accent-cyan: #00ff41;
+    --neon-green: #00ff41;
+    --border-color: #003b00;
+    --text-main: #00ff41;
+}
+
+body {
+    margin: 0; font-family: 'Inter', sans-serif;
+    background-color: var(--bg-dark); color: var(--text-main);
+    display: flex; height: 100vh; overflow: hidden;
+}
+
+/* SIDEBAR */
+#sidebar {
+    width: 340px; background-color: var(--sidebar-bg);
+    border-right: 1px solid var(--border-color);
+    padding: 25px 20px; display: flex; flex-direction: column;
+    gap: 15px; box-sizing: border-box; overflow-y: auto; flex-shrink: 0;
+}
+
+.logo {
+    text-align: center; font-size: 26px; font-weight: 900; margin-bottom: 5px;
+    background: linear-gradient(to right, var(--accent-cyan), var(--accent-purple));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.info-card {
+    background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color);
+    border-radius: 12px; padding: 12px; position: relative;
+}
+
+.info-card .label { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 5px; display: block;}
+.info-card .value { font-family: 'JetBrains Mono', monospace; font-weight: 800; display: flex; align-items: center; justify-content: space-between; }
+.credit-value { color: var(--neon-green); font-size: 20px; }
+.id-value { color: #ccc; font-size: 12px; }
+
+.section-title { font-size: 11px; color: #444; text-transform: uppercase; margin-top: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; font-weight: bold; }
+
+.input-control {
+    width: 100%; background: #000; border: 1px solid #333;
+    color: #fff; padding: 8px 10px; border-radius: 6px; outline: none; font-size: 13px; margin-top: 5px;
+}
+
+.group-box { background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+.btn { border: none; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; text-transform: uppercase; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.btn-settings { background: var(--gradient-btn); color: white; }
+
+/* MAIN CONTENT */
+#main-wrapper { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px solid var(--border-color); }
+.horizontal-tabs { display: flex; gap: 12px; overflow-x: auto; }
+.tab-item { flex: 1; min-width: 100px; background: #1a1a1a; border: 1px solid #333; color: #666; padding: 14px; text-align: center; border-radius: 8px; font-weight: 800; text-transform: uppercase; font-size: 12px; }
+.tab-item.active { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+.workspace { padding: 30px; overflow-y: auto; }
+
+/* TABLE FIXES (SỬA LỖI TRỒNG LÊN NHAU) */
+.table-container { width: 100%; overflow-x: auto; }
+.task-table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 12px; min-width: 600px; }
+.task-table th { background: #222; color: var(--accent-cyan); padding: 15px; text-align: left; font-size: 12px; }
+.task-table td { padding: 15px; border-bottom: 1px solid #222; font-size: 14px; color: #ccc; }
+
+/* NÚT TRẠNG THÁI (KHÔNG BỊ BÓP MÉO) */
+.status-badge {
+    padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: bold;
+    white-space: nowrap; /* Giữ chữ trên 1 dòng */
+    display: inline-flex; /* Fix hình dạng */
+    align-items: center;
+    background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border: 1px solid var(--neon-green);
+    flex-shrink: 0;
+}
+#userId[contenteditable="true"] {
+    user-select: text !important;
+    cursor: text !important;
+    background: rgba(255, 255, 255, 0.1); /* Tạo hiệu ứng dễ nhìn khi đang sửa */
+    padding: 2px;
+}
