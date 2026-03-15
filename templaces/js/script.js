@@ -1,4 +1,482 @@
 // ===============================
+// SCRIPT MANAGER
+// ===============================
+let currentScriptData = [];
+
+async function loadScriptList() {
+    try {
+        const res = await fetch('/listscripts');
+        const names = await res.json().catch(() => []);
+        const scriptSelect = document.getElementById('scriptSelect');
+        if (!scriptSelect) return;
+        scriptSelect.innerHTML = '<option value="" selected>None</option>';
+        names.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name.endsWith('.txt') ? name.slice(0, -4) : name;
+            scriptSelect.appendChild(opt);
+        });
+    } catch (err) {
+        console.error('Lỗi load danh sách kịch bản:', err);
+    }
+}
+
+async function loadScript(fileName) {
+    if (!fileName) {
+        const sceneContainer = document.getElementById('sceneContainer');
+        if (sceneContainer) sceneContainer.innerHTML = '';
+        currentScriptData = [];
+        return;
+    }
+    try {
+        const res = await fetch(`/load_script?name=${encodeURIComponent(fileName)}`);
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body.ok || !Array.isArray(body.scenes)) {
+            console.error('Không load được kịch bản:', body.error);
+            const sceneContainer = document.getElementById('sceneContainer');
+            if (sceneContainer) sceneContainer.innerHTML = '<div style="color:#f55;">Không tải được kịch bản</div>';
+            currentScriptData = [];
+            return;
+        }
+        currentScriptData = body.scenes;
+        renderScenes(body.scenes);
+    } catch (err) {
+        console.error('Lỗi gọi /load_script:', err);
+        currentScriptData = [];
+    }
+}
+
+function renderScenes(scenes) {
+    const sceneContainer = document.getElementById('sceneContainer');
+    if (!sceneContainer) return;
+    sceneContainer.innerHTML = '';
+    
+    // Set dynamic height based on viewport
+    const viewportHeight = window.innerHeight;
+    const containerTop = sceneContainer.getBoundingClientRect().top;
+    const availableHeight = viewportHeight - containerTop - 100; // Leave some margin
+    sceneContainer.style.maxHeight = Math.max(300, availableHeight) + 'px';
+    sceneContainer.style.overflowY = 'auto';
+    sceneContainer.style.paddingRight = '8px'; // Space for scrollbar
+    
+    // Custom scrollbar styling
+    const style = document.createElement('style');
+    style.textContent = `
+        #sceneContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #sceneContainer::-webkit-scrollbar-track {
+            background: var(--input-bg, rgba(0,0,0,0.3));
+            border-radius: 4px;
+        }
+        #sceneContainer::-webkit-scrollbar-thumb {
+            background: var(--border-color, rgba(255,255,255,0.3));
+            border-radius: 4px;
+        }
+        #sceneContainer::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-color, #3498db);
+        }
+    `;
+    if (!document.getElementById('scene-container-scrollbar-style')) {
+        style.id = 'scene-container-scrollbar-style';
+        document.head.appendChild(style);
+    }
+    
+    scenes.forEach((scene, index) => {
+        const sceneDiv = document.createElement('div');
+        sceneDiv.className = 'scene-item';
+        sceneDiv.dataset.sceneIndex = index;
+        sceneDiv.style.cssText = 'background: var(--card-bg, rgba(255,255,255,0.08)); border: 2px solid var(--border-color, rgba(255,255,255,0.2)); border-radius: 12px; padding: 16px; margin-bottom: 16px; cursor: move; transition: all 0.3s ease; position: relative;';
+        
+        sceneDiv.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="color: var(--text-primary, #fff); font-weight: bold; font-size: 18px;">Cảnh ${scene.scene}</div>
+                <button class="delete-scene-btn" data-scene-index="${index}" style="background: var(--accent-red, #e74c3c); color: white; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">Xóa</button>
+            </div>
+            <div style="margin-bottom: 12px;">
+                <label style="color: var(--text-secondary, #e0e0e0); font-size: 15px; font-weight: 600; display: block; margin-bottom: 6px;">Prompt:</label>
+                <textarea class="scene-prompt" style="width: 100%; min-height: 120px; background: var(--input-bg, rgba(0,0,0,0.5)); border: 2px solid var(--input-border, rgba(255,255,255,0.3)); border-radius: 8px; padding: 12px; color: var(--text-primary, #fff); font-size: 16px; font-weight: 600; line-height: 1.6; resize: vertical; box-sizing: border-box;">${scene.prompt || ''}</textarea>
+            </div>
+            <div>
+                <label style="color: var(--text-secondary, #e0e0e0); font-size: 15px; font-weight: 600; display: block; margin-bottom: 6px;">Audio:</label>
+                <input type="text" class="scene-audio" value="${scene.audio || ''}" style="width: 100%; background: var(--input-bg, rgba(0,0,0,0.5)); border: 2px solid var(--input-border, rgba(255,255,255,0.3)); border-radius: 8px; padding: 12px; color: var(--text-primary, #fff); font-size: 16px; font-weight: 600; box-sizing: border-box;">
+            </div>
+        `;
+        
+        // Add hover effect
+        sceneDiv.addEventListener('mouseenter', () => {
+            sceneDiv.style.borderColor = 'var(--accent-color, #3498db)';
+            sceneDiv.style.transform = 'translateY(-2px)';
+            sceneDiv.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+        });
+        
+        sceneDiv.addEventListener('mouseleave', () => {
+            sceneDiv.style.borderColor = 'var(--border-color, rgba(255,255,255,0.2))';
+            sceneDiv.style.transform = 'translateY(0)';
+            sceneDiv.style.boxShadow = 'none';
+        });
+        
+        sceneContainer.appendChild(sceneDiv);
+    });
+    
+    // Bind delete buttons
+    document.querySelectorAll('.delete-scene-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const sceneIndex = parseInt(this.dataset.sceneIndex);
+            deleteScene(sceneIndex);
+        });
+    });
+    
+    // Make scenes draggable
+    makeScenesDraggable();
+}
+
+function deleteScene(sceneIndex) {
+    currentScriptData.splice(sceneIndex, 1);
+    // Renumber scenes
+    currentScriptData.forEach((scene, index) => {
+        scene.scene = index + 1;
+    });
+    renderScenes(currentScriptData);
+}
+
+function showDeleteSceneModal(sceneIndex) {
+    const modal = document.getElementById('deleteSceneModal');
+    const confirmBtn = document.getElementById('deleteSceneConfirmBtn');
+    const cancelBtn = document.getElementById('deleteSceneCancelBtn');
+    
+    if (!modal || !confirmBtn || !cancelBtn) return;
+    
+    // Remove old event listeners
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+    
+    // Add new event listener
+    newConfirmBtn.addEventListener('click', () => {
+        deleteScene(sceneIndex);
+        modal.style.display = 'none';
+    });
+    
+    cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+    };
+    
+    modal.style.display = 'flex';
+}
+
+function collectScenes() {
+    const sceneItems = document.querySelectorAll('.scene-item');
+    const scenes = [];
+    
+    sceneItems.forEach((item, index) => {
+        const prompt = item.querySelector('.scene-prompt')?.value || '';
+        const audio = item.querySelector('.scene-audio')?.value || '';
+        
+        scenes.push({
+            scene: index + 1,
+            prompt: prompt,
+            audio: audio
+        });
+    });
+    
+    return scenes;
+}
+
+function addScene() {
+    const newScene = {
+        scene: currentScriptData.length + 1,
+        prompt: "",
+        audio: ""
+    };
+    currentScriptData.push(newScene);
+    renderScenes(currentScriptData);
+}
+
+function showSaveScriptModal() {
+    const modal = document.getElementById('saveScriptModal');
+    const input = document.getElementById('saveScriptNameInput');
+    const scriptSelect = document.getElementById('scriptSelect');
+    
+    if (!modal || !input) return;
+    
+    // Set default filename (without .txt)
+    let defaultName = '';
+    if (scriptSelect && scriptSelect.value) {
+        defaultName = scriptSelect.value.replace('.txt', '');
+    }
+    input.value = defaultName;
+    
+    modal.style.display = 'flex';
+    input.focus();
+    input.select();
+}
+
+function closeSaveScriptModal() {
+    const modal = document.getElementById('saveScriptModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function showDeleteScriptModal() {
+    const modal = document.getElementById('deleteScriptModal');
+    const scriptSelect = document.getElementById('scriptSelect');
+    
+    if (!modal) return;
+    
+    // Check if there's a script selected
+    if (!scriptSelect || !scriptSelect.value) {
+        alert('Vui lòng chọn kịch bản cần xóa');
+        return;
+    }
+    
+    modal.style.display = 'flex';
+}
+
+function closeDeleteScriptModal() {
+    const modal = document.getElementById('deleteScriptModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function deleteScript() {
+    const scriptSelect = document.getElementById('scriptSelect');
+    if (!scriptSelect || !scriptSelect.value) {
+        alert('Vui lòng chọn kịch bản cần xóa');
+        return;
+    }
+    
+    try {
+        const res = await fetch('/delete_script', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: scriptSelect.value
+            })
+        });
+        
+        const body = await res.json().catch(() => ({}));
+        
+        if (!res.ok || !body.ok) {
+            console.error('Xóa kịch bản thất bại:', body.error);
+            alert('Không thể xóa kịch bản: ' + (body.error || 'Lỗi không xác định'));
+            return;
+        }
+        
+        // Clear current script data
+        currentScriptData = [];
+        
+        // Clear scene container
+        const sceneContainer = document.getElementById('sceneContainer');
+        if (sceneContainer) {
+            sceneContainer.innerHTML = '';
+        }
+        
+        // Reload script list
+        await loadScriptList();
+        
+        // Reset select to None
+        scriptSelect.value = '';
+        
+        // Show success message
+        showSuccessOverlay('Đã xóa kịch bản thành công!');
+    } catch (err) {
+        console.error('Lỗi xóa kịch bản:', err);
+        alert('Lỗi khi xóa kịch bản');
+    }
+}
+
+async function saveScript(fileName) {
+    try {
+        // Collect current data from editable forms
+        const scenes = collectScenes();
+        
+        const res = await fetch('/save_script', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: fileName,
+                scenes: scenes
+            })
+        });
+        
+        const body = await res.json().catch(() => ({}));
+        
+        if (!res.ok || !body.ok) {
+            console.error('Lưu kịch bản thất bại:', body.error);
+            alert('Không thể lưu kịch bản: ' + (body.error || 'Lỗi không xác định'));
+            return;
+        }
+        
+        // Update currentScriptData with saved data
+        currentScriptData = scenes;
+        
+        // Reload script list to show the new file
+        await loadScriptList();
+        
+        // Select the newly saved script
+        const scriptSelect = document.getElementById('scriptSelect');
+        if (scriptSelect) {
+            scriptSelect.value = fileName + '.txt';
+            await loadScript(fileName + '.txt');
+        }
+        
+        // Show success message in overlay
+        showSuccessOverlay('Đã lưu kịch bản thành công!');
+    } catch (err) {
+        console.error('Lỗi lưu kịch bản:', err);
+        alert('Lỗi khi lưu kịch bản');
+    }
+}
+
+function showSuccessOverlay(message) {
+    // Create overlay element
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: fadeIn 0.3s ease;
+    `;
+    
+    const messageBox = document.createElement('div');
+    messageBox.style.cssText = `
+        background: var(--card-bg, rgba(255,255,255,0.1));
+        border: 2px solid var(--accent-color, #4CAF50);
+        border-radius: 12px;
+        padding: 20px 40px;
+        color: var(--text-primary, #fff);
+        font-size: 18px;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(76, 175, 80, 0.3);
+        animation: slideUp 0.3s ease;
+    `;
+    messageBox.textContent = message;
+    
+    overlay.appendChild(messageBox);
+    document.body.appendChild(overlay);
+    
+    // Auto remove after 2 seconds
+    setTimeout(() => {
+        overlay.style.animation = 'fadeOut 0.3s ease';
+        setTimeout(() => {
+            document.body.removeChild(overlay);
+        }, 300);
+    }, 2000);
+    
+    // Add click to close
+    overlay.addEventListener('click', () => {
+        overlay.style.animation = 'fadeOut 0.3s ease';
+        setTimeout(() => {
+            if (document.body.contains(overlay)) {
+                document.body.removeChild(overlay);
+            }
+        }, 300);
+    });
+}
+
+// Add animations
+if (!document.getElementById('success-overlay-styles')) {
+    const style = document.createElement('style');
+    style.id = 'success-overlay-styles';
+    style.textContent = `
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function makeScenesDraggable() {
+    const sceneItems = document.querySelectorAll('.scene-item');
+    let draggedElement = null;
+    
+    sceneItems.forEach(item => {
+        item.draggable = true;
+        
+        item.addEventListener('dragstart', function(e) {
+            draggedElement = this;
+            this.style.opacity = '0.5';
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        
+        item.addEventListener('dragend', function() {
+            this.style.opacity = '';
+        });
+        
+        item.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            const afterElement = getDragAfterElement(document.getElementById('sceneContainer'), e.clientY);
+            if (afterElement == null) {
+                document.getElementById('sceneContainer').appendChild(draggedElement);
+            } else {
+                document.getElementById('sceneContainer').insertBefore(draggedElement, afterElement);
+            }
+        });
+        
+        item.addEventListener('drop', function(e) {
+            e.preventDefault();
+            // Update scene order in data
+            updateSceneOrder();
+        });
+    });
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.scene-item:not(.dragging)')];
+    
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function updateSceneOrder() {
+    const sceneItems = document.querySelectorAll('.scene-item');
+    const newOrder = [];
+    
+    sceneItems.forEach(item => {
+        const index = parseInt(item.dataset.sceneIndex);
+        newOrder.push(currentScriptData[index]);
+    });
+    
+    currentScriptData = newOrder;
+    // Renumber scenes
+    currentScriptData.forEach((scene, index) => {
+        scene.scene = index + 1;
+    });
+}
+
+// ===============================
 // COPY USER ID
 // ===============================
 function copyId(event) {
@@ -148,55 +626,27 @@ function closeAudioOverlay() {
 
 
 
-function openVideoOverlay(src, title, mime) {
+function openVideoOverlay(src, title) {
+    console.log('openVideoOverlay called with:', { src, title });
     const overlay = document.getElementById('videoOverlay');
     const video = document.getElementById('videoPlayer');
     const titleEl = document.getElementById('videoTitle');
-    const unsupportedMsg = document.getElementById('videoUnsupportedMsg');
-    const openVlcBtn = document.getElementById('openVlcBtn');
-    if (!overlay || !video || !unsupportedMsg || !openVlcBtn) return;
-
-    // Reset trạng thái
-    video.style.display = 'block';
-    unsupportedMsg.style.display = 'none';
-
-    const canPlay = mime ? video.canPlayType(mime) : '';
-
-    if (!canPlay) {
-        // Video không hỗ trợ, ẩn video, hiện message và nút VLC
-        video.style.display = 'none';
-        unsupportedMsg.style.display = 'block';
-
-        // Gán event cho nút VLC
-        openVlcBtn.onclick = async () => {
-            // Lấy file từ state
-            const file = window.__cloneVideoState?.file;
-            if (!file) return;
-            try {
-                const formData = new FormData();
-                formData.append('file', file);
-                const res = await fetch('/open_video', { method: 'POST', body: formData });
-                const body = await res.json().catch(() => ({}));
-                if (!res.ok || !body.ok) {
-                    console.error('Không mở được video bằng VLC:', body.error);
-                }
-            } catch (err) {
-                console.error('Lỗi gọi /open_video:', err);
-            }
-        };
-    } else {
-        // Hỗ trợ, set src và autoplay
-        video.src = src;
-        video.currentTime = 0;
-        if (titleEl && title) {
-            titleEl.textContent = title;
-        }
-        overlay.style.display = 'flex';
-        video.play().catch(() => {});
+    
+    if (!overlay || !video || !titleEl) {
+        console.error('Missing elements:', { overlay: !!overlay, video: !!video, titleEl: !!titleEl });
+        return;
     }
 
-    // Luôn hiện overlay
+    // Set video source and title
+    video.src = src;
+    video.currentTime = 0;
+    if (titleEl && title) {
+        titleEl.textContent = title;
+    }
+
+    // Show overlay and play
     overlay.style.display = 'flex';
+    video.play().catch(() => {});
 }
 
 function closeVideoOverlay() {
@@ -749,7 +1199,7 @@ window.onload = async function() {
 };
 
 function initWorkspaceBindings() {
-
+    console.log('initWorkspaceBindings called');
     const cloneVideoChooseBtn = document.getElementById('cloneVideoChooseBtn');
     const cloneVideoFileInput = document.getElementById('cloneVideoFileInput');
     const cloneVideoPathInput = document.getElementById('cloneVideoPathInput');
@@ -757,6 +1207,16 @@ function initWorkspaceBindings() {
     const cloneVideoPreviewThumb = document.getElementById('cloneVideoPreviewThumb');
     const cloneVideoPreviewVideo = document.getElementById('cloneVideoPreviewVideo');
     const cloneVideoPlayIcon = document.getElementById('cloneVideoPlayIcon');
+    
+    console.log('Clone Video elements found:', {
+        cloneVideoChooseBtn: !!cloneVideoChooseBtn,
+        cloneVideoFileInput: !!cloneVideoFileInput,
+        cloneVideoPathInput: !!cloneVideoPathInput,
+        cloneVideoPreview: !!cloneVideoPreview,
+        cloneVideoPreviewThumb: !!cloneVideoPreviewThumb,
+        cloneVideoPreviewVideo: !!cloneVideoPreviewVideo,
+        cloneVideoPlayIcon: !!cloneVideoPlayIcon
+    });
 
     if (!window.__cloneVideoState) {
         window.__cloneVideoState = { objectUrl: '', lastFileSig: '', file: null };
@@ -878,23 +1338,105 @@ function initWorkspaceBindings() {
     }
 
     if (cloneVideoPreview) {
-        cloneVideoPreview.onclick = function () {
+        cloneVideoPreview.onclick = async function () {
             const url = window.__cloneVideoState?.objectUrl;
             if (!url) return;
             const title = (cloneVideoPathInput && cloneVideoPathInput.value) ? cloneVideoPathInput.value : 'Xem video';
-
             const file = window.__cloneVideoState?.file;
-            const mime = file?.type || guessMimeTypeFromName(file?.name);
-            const probeEl = document.getElementById('videoPlayer');
-            const canPlay = (probeEl && mime) ? probeEl.canPlayType(mime) : '';
 
-            // Nếu browser không play được thì mở bằng app mặc định của hệ điều hành
-            if (!canPlay && file) {
-                openVideoInOsPlayer(file);
+            if (!file) return;
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const res = await fetch('/transcode_for_web', {
+                    method: 'POST',
+                    body: formData
+                });
+                const body = await res.json().catch(() => ({}));
+
+                if (!res.ok || !body.ok) {
+                    console.error('Chuyển đổi video thất bại:', body.error);
+                    alert('Không thể chuyển đổi video: ' + (body.error || 'Lỗi không xác định'));
+                    return;
+                }
+
+                // Mở video đã chuyển đổi
+                openVideoOverlay(body.url, title);
+            } catch (err) {
+                console.error('Lỗi chuyển đổi video:', err);
+                alert('Lỗi khi chuyển đổi video');
+            }
+        };
+    }
+
+    // Bind script select
+    const scriptSelect = document.getElementById('scriptSelect');
+    if (scriptSelect) {
+        scriptSelect.onchange = async () => {
+            await loadScript(scriptSelect.value);
+        };
+        // Load script list on init
+        loadScriptList();
+    }
+
+    // Bind Add Scene button
+    const addSceneBtn = document.getElementById('addSceneBtn');
+    if (addSceneBtn) {
+        addSceneBtn.onclick = () => {
+            addScene();
+        };
+    }
+
+    // Bind Save Script button
+    const saveScriptBtn = document.getElementById('saveScriptBtn');
+    if (saveScriptBtn) {
+        saveScriptBtn.onclick = () => {
+            showSaveScriptModal();
+        };
+    }
+
+    // Bind save script modal buttons
+    const saveScriptConfirmBtn = document.getElementById('saveScriptConfirmBtn');
+    const saveScriptCancelBtn = document.getElementById('saveScriptCancelBtn');
+    const saveScriptNameInput = document.getElementById('saveScriptNameInput');
+    
+    if (saveScriptConfirmBtn && saveScriptCancelBtn && saveScriptNameInput) {
+        saveScriptConfirmBtn.onclick = async () => {
+            const fileName = saveScriptNameInput.value.trim();
+            if (!fileName) {
+                alert('Vui lòng nhập tên kịch bản');
                 return;
             }
+            await saveScript(fileName);
+            closeSaveScriptModal();
+        };
+        
+        saveScriptCancelBtn.onclick = () => {
+            closeSaveScriptModal();
+        };
+    }
 
-            openVideoOverlay(url, title);
+    // Bind delete script modal buttons
+    const deleteScriptBtn = document.getElementById('deleteScriptBtn');
+    const deleteScriptConfirmBtn = document.getElementById('deleteScriptConfirmBtn');
+    const deleteScriptCancelBtn = document.getElementById('deleteScriptCancelBtn');
+    
+    if (deleteScriptBtn) {
+        deleteScriptBtn.onclick = () => {
+            showDeleteScriptModal();
+        };
+    }
+    
+    if (deleteScriptConfirmBtn && deleteScriptCancelBtn) {
+        deleteScriptConfirmBtn.onclick = async () => {
+            await deleteScript();
+            closeDeleteScriptModal();
+        };
+        
+        deleteScriptCancelBtn.onclick = () => {
+            closeDeleteScriptModal();
         };
     }
 

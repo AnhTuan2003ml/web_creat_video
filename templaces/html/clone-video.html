@@ -36,8 +36,8 @@
                 <input type="text" class="input-control" id="cloneVideoApiKey" value="" style="font-size: 14px; border-radius: 10px; min-width: 0;" />
 
                 <label style="opacity: 0.9;">Kịch bản</label>
-                <select class="input-control" style="font-size: 14px; border-radius: 10px;">
-                    <option selected>None</option>
+                <select id="scriptSelect" class="input-control" style="font-size: 14px; border-radius: 10px;">
+                    <option value="" selected>None</option>
                 </select>
             </div>
         </div>
@@ -45,7 +45,7 @@
         <div class="group-box" style="flex: 1; min-height: 260px; border-radius: 14px; padding: 16px;">
             <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-cyan);">Nội dung</div>
             <div id="cloneVideoPreview" style="position: relative; flex: 1; border: 1px dashed rgba(255,255,255,0.12); border-radius: 14px; min-height: 220px; overflow: hidden; cursor: pointer; background: rgba(0,0,0,0.35);">
-                <img id="cloneVideoPreviewThumb" alt="Video thumbnail" style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 50%; height: 50%; max-width: 520px; max-height: 520px; display: none; object-fit: cover; border-radius: 12px; border: 1px solid rgba(255,255,255,0.10);" />
+                <img id="cloneVideoPreviewThumb" alt="Video thumbnail" style="position: absolute; inset: 0; width: 100%; height: 100%; display: none; object-fit: contain; object-position: center;" />
                 <video id="cloneVideoPreviewVideo" style="width: 100%; height: 100%; display: block; object-fit: cover;" muted playsinline></video>
                 <div id="cloneVideoPlayIcon" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;">
                     <div style="width: 64px; height: 64px; border-radius: 999px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(6px);">
@@ -61,14 +61,19 @@
             <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-cyan);">Hành động</div>
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                 <button type="button" class="btn btn-settings" style="font-size: 12px;">Bắt đầu</button>
-                <button type="button" class="btn btn-preview" style="font-size: 12px;">Lưu kịch bản</button>
-                <button type="button" class="btn" style="font-size: 12px; background: radial-gradient(circle at top left, rgba(255, 49, 49, 0.25), transparent 55%); border: 1px solid var(--primary-red); color: #ffecec;">Xóa kịch bản</button>
+                <button type="button" id="saveScriptBtn" class="btn btn-preview" style="font-size: 12px;">Lưu kịch bản</button>
+                <button type="button" id="deleteScriptBtn" class="btn" style="font-size: 12px; background: radial-gradient(circle at top left, rgba(255, 49, 49, 0.25), transparent 55%); border: 1px solid var(--primary-red); color: #ffecec;">Xóa kịch bản</button>
             </div>
         </div>
 
         <div class="group-box" style="flex: 1; min-height: 260px; border-radius: 14px; padding: 16px;">
-            <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-cyan);">Kết quả</div>
-            <div style="flex: 1; border: 1px dashed rgba(255,255,255,0.12); border-radius: 14px; min-height: 180px;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-cyan);">Kịch bản</div>
+                <button type="button" id="addSceneBtn" class="btn" style="font-size: 12px; padding: 4px 12px; background: radial-gradient(circle at top left, rgba(255, 49, 49, 0.25), transparent 55%); border: 1px solid var(--primary-red); color: #ffecec;">Thêm</button>
+            </div>
+            <div id="sceneContainer" style="flex: 1; border: 1px dashed rgba(255,255,255,0.12); border-radius: 14px; min-height: 180px; padding: 12px; overflow-y: auto;">
+                <!-- Scenes will be rendered here -->
+            </div>
         </div>
     </div>
 </div>

@@ -9,6 +9,6 @@
       "prompt": "duration: 8 seconds. Absolute silence. The video must contain zero audio track. Completely silent video output. Realistic live-action footage, no cartoon, no illustration. Professional commercial fashion presentation using a smartphone as a visual prop. No audio of any kind: no background sound, no ambient noise, no music, no voice, no sound effects. Non-sensual, non-provocative, neutral body language. Scene 2: The character continues to record via the mirror while holding the smartphone steadily in one hand. She subtly shifts her weight, then performs a smooth, controlled body turn to the left to present the outfit silhouette. She pauses briefly, maintaining eye alignment toward the mirror, then returns smoothly to a centered, forward-facing position. Movements are slow, controlled, and professional.",
       "audio": ""
     }
- ]
+]
 
 
