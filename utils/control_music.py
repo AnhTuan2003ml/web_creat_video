@@ -108,6 +108,7 @@ def upload_music_handler():
 
     Form-data:
       file: <audio|video>
+      desired_name: <optional string>
     """
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "missing file"}), 400
@@ -115,6 +116,9 @@ def upload_music_handler():
     file = request.files["file"]
     if not file or file.filename == "":
         return jsonify({"ok": False, "error": "empty filename"}), 400
+
+    desired_name_raw = request.form.get("desired_name", "")
+    desired_name = secure_filename(desired_name_raw) if desired_name_raw else ""
 
     filename = secure_filename(file.filename)
     if not filename:
@@ -124,7 +128,7 @@ def upload_music_handler():
     file.save(temp_path)
 
     try:
-        ok, payload, status = _process_source_to_music(temp_path)
+        ok, payload, status = _process_source_to_music(temp_path, desired_name=desired_name)
     finally:
         # luôn cố gắng xóa file tạm
         try:
@@ -139,7 +143,9 @@ def upload_music_handler():
     return jsonify({"ok": True, **payload}), status
 
 
-def _process_source_to_music(src_path: str) -> Tuple[bool, str | Dict[str, str], int]:
+def _process_source_to_music(
+    src_path: str, *, desired_name: str = ""
+) -> Tuple[bool, str | Dict[str, str], int]:
     """
     Xử lý file nguồn (audio hoặc video) thành file audio trong MUSIC_DIR.
 
@@ -153,14 +159,21 @@ def _process_source_to_music(src_path: str) -> Tuple[bool, str | Dict[str, str],
     base_name = os.path.basename(src_path)
     name_without_ext, _ = os.path.splitext(base_name)
 
+    desired_base, desired_ext = ("", "")
+    if desired_name:
+        desired_base, desired_ext = os.path.splitext(desired_name)
+        if desired_base:
+            name_without_ext = desired_base
+
     # Audio: copy trực tiếp
     if ext_lower in AUDIO_EXTS:
-        target_name = base_name
+        target_ext = desired_ext.lower() if desired_ext else ext_lower
+        target_name = f"{name_without_ext}{target_ext}"
         target_path = os.path.join(MUSIC_DIR, target_name)
 
         counter = 1
         while os.path.exists(target_path):
-            target_name = f"{name_without_ext}_{counter}{ext_lower}"
+            target_name = f"{name_without_ext}_{counter}{target_ext}"
             target_path = os.path.join(MUSIC_DIR, target_name)
             counter += 1
 

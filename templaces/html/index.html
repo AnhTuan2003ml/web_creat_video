@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoVideo999+ Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="/templaces/css/style.css">
+</head>
+<body class="theme-default">
+
+    <div id="sidebar">
+        <div class="logo">
+            AutoVideo999+
+            <div class="app-version" style="font-size: 10px; color: #666; margin-top: 2px;">Loading...</div>
+        </div>
+        
+        <div class="info-card">
+            <span class="label">AI Credit Balance</span>
+            <div class="value credit-value"><i class="fas fa-coins"></i> 1,250.00</div>
+        </div>
+
+        <div class="info-card">
+            <span class="label">User ID</span>
+        
+            <div class="value id-value">
+        
+                <span id="userId"
+                      contenteditable="false"
+                      onclick="enableEdit()"
+                      style="cursor:text;">
+                      Loading...
+                </span>
+        
+                <!-- COPY -->
+                <i class="fas fa-copy copy-btn"
+                   id="btn-copy"
+                   onclick="copyId(event)"
+                   title="Copy ID"
+                   style="cursor:pointer;"></i>
+        
+                <!-- SAVE -->
+                <i class="fas fa-save save-btn"
+                   id="btn-save"
+                   onclick="saveUserId(event)"
+                   title="Lưu ID"
+                   style="display:none;cursor:pointer;color:#4CAF50;margin-left:5px;"></i>
+        
+            </div>
+        </div>
+
+        <div class="section-title">Quản lý tài khoản</div>
+        <div class="group-box">
+            <div>
+                <span class="label">Model AI Đang dùng</span>
+                <select class="input-control">
+                    <option>Veo3 (Google)</option>
+                    <option>Grok (X-AI)</option>
+                    <option>Kling AI</option>
+                </select>
+            </div>
+            <button class="btn btn-settings"><i class="fas fa-user-shield"></i> THIẾT LẬP TÀI KHOẢN</button>
+        </div>
+
+        <div class="section-title">Cấu hình Output</div>
+        <div class="group-box" style="flex-direction: row; gap: 8px;">
+            <div style="flex: 1;">
+                <span class="label">Chất lượng</span>
+                <select class="input-control">
+                    <option selected>1080p</option>
+                    <option>720p</option>
+                </select>
+            </div>
+            <div style="flex: 1;">
+                <span class="label">Tỉ lệ</span>
+                <select class="input-control">
+                    <option selected>9:16</option>
+                    <option>16:9</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section-title">Âm thanh & Xử lý</div>
+        <div class="group-box">
+            <div>
+                <span class="label">Nhạc nền video</span>
+                <select class="input-control" id="musicSelect">
+                    <option selected>None (Mặc định)</option>
+                    <option>vibrant-fashion.mp3</option>
+                    <option>cinematic-bgm.mp3</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <button class="btn btn-gold" id="addMusicBtn" style="grid-column: span 2; background: var(--accent-purple); color: white;">+ Thêm âm thanh</button>
+                <button class="btn btn-preview"><i class="fas fa-play"></i> Nghe thử</button>
+                <button class="btn btn-delete" onclick="deleteSelectedMusic()">
+                    <i class="fas fa-trash-alt"></i> Xóa
+                </button>
+            </div>
+            <label class="random-inline">
+                <input type="checkbox" checked>
+                <span>Chế độ Random nhạc</span>
+            </label>
+        </div>
+        <!-- input ẩn dùng để chọn file nhạc / video thêm mới -->
+        <input id="addMusicInput" type="file" accept="audio/*,video/*" style="display:none;">
+        <div class="section-title">Thư Mục Lưu Kết Quả</div>
+        <button id="resultFolderBtn" class="btn btn-folder" style="width: 100%; margin-top: auto;">
+            <i class="fas fa-folder-open"></i>
+            <span id="resultFolderLabel">THƯ MỤC KẾT QUẢ</span>
+        </button>
+        <!-- input ẩn dùng để chọn thư mục -->
+        <input id="resultFolderInput" type="file" webkitdirectory directory multiple style="display:none;">
+    </div>
+
+    <div id="main-wrapper">
+        <header>
+            <div class="horizontal-tabs">
+                <div class="tab-item active">Home</div>
+                <div class="tab-item">Clone Video</div>
+                <div class="tab-item">Tạo Ảnh</div>
+                <div class="tab-item">Tạo Video</div>
+                <div class="tab-item">KLing</div>
+            </div>
+        </header>
+
+        <div class="workspace" id="workspace-root"></div>
+    </div>
+    <div id="overlays-root"></div>
+    <script src="/templaces/js/script.js"></script>
+</body>
+
+</html>
