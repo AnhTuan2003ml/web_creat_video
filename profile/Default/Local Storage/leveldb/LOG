@@ -1,21 +1,6 @@
-2026/03/16-23:28:45.498 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/MANIFEST-000001
-2026/03/16-23:28:45.501 5 Recovering log #58
-2026/03/16-23:28:45.501 5 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/000058.log 
-2026/03/16-23:29:45.504 7 Level-0 table #62: started
-2026/03/16-23:29:45.512 7 Level-0 table #62: 84533 bytes OK
-2026/03/16-23:29:45.516 7 Delete type=0 #58
-2026/03/16-23:29:45.517 7 Compacting 4@0 + 1@1 files
-2026/03/16-23:29:45.526 7 Generated table #63@0: 35 keys, 86117 bytes
-2026/03/16-23:29:45.526 7 Compacted 4@0 + 1@1 files => 86117 bytes
-2026/03/16-23:29:45.529 7 compacted to: files[ 0 1 0 0 0 0 0 ]
-2026/03/16-23:29:45.530 7 Delete type=2 #57
-2026/03/16-23:29:45.530 7 Delete type=2 #53
-2026/03/16-23:29:45.530 7 Delete type=2 #59
-2026/03/16-23:29:45.530 7 Delete type=2 #62
-2026/03/16-23:29:45.530 7 Delete type=2 #55
-2026/03/16-23:31:45.979 7 Level-0 table #65: started
-2026/03/16-23:31:45.987 7 Level-0 table #65: 82852 bytes OK
-2026/03/16-23:31:45.991 7 Delete type=0 #61
-2026/03/16-23:33:45.979 7 Level-0 table #67: started
-2026/03/16-23:33:45.986 7 Level-0 table #67: 78327 bytes OK
-2026/03/16-23:33:45.990 7 Delete type=0 #64
+2026/03/16-23:41:57.525 4060 Reusing MANIFEST D:\New folder\new_creat_video\profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/03/16-23:41:57.531 4060 Recovering log #17
+2026/03/16-23:41:57.532 4060 Reusing old log D:\New folder\new_creat_video\profile\Default\Local Storage\leveldb/000017.log 
+2026/03/16-23:42:57.547 1a18 Level-0 table #21: started
+2026/03/16-23:42:57.626 1a18 Level-0 table #21: 77086 bytes OK
+2026/03/16-23:42:57.644 1a18 Delete type=0 #17
