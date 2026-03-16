@@ -1,4 +1,7 @@
 from flask import Flask, jsonify, send_from_directory, request
+import asyncio
+import base64
+import uuid
 import os
 import sys
 import subprocess
@@ -33,14 +36,141 @@ from utils.control_script import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MUSIC_DIR = os.path.join(BASE_DIR, "config", "Music")
 THEME_IMG_DIR = os.path.join(BASE_DIR, "templaces", "img")
+GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
 app = Flask(__name__, static_folder=".", static_url_path="")
+
+
+def _safe_folder_name(name: str) -> str:
+    name = (name or '').strip()
+    if not name:
+        return 'default'
+    # keep it simple and filesystem-safe
+    allowed = []
+    for ch in name:
+        if ch.isalnum() or ch in ('-', '_'):
+            allowed.append(ch)
+        elif ch.isspace():
+            allowed.append('-')
+    out = ''.join(allowed).strip('-')
+    return out or 'default'
+
+
+def _write_data_url_to_file(data_url: str, out_path: str) -> None:
+    if not data_url or not data_url.startswith('data:image'):
+        raise ValueError('Only data:image/* base64 is supported')
+    try:
+        header, b64 = data_url.split(',', 1)
+        content = base64.b64decode(b64)
+    except Exception as exc:
+        raise ValueError('Invalid base64 image') from exc
+
+    with open(out_path, 'wb') as f:
+        f.write(content)
 
 
 @app.route("/")
 def index():
     # Phục vụ giao diện chính
     return send_from_directory("templaces/html", "index.html")
+
+
+@app.route('/generated/<path:filename>')
+def serve_generated(filename: str):
+    return send_from_directory(GENERATED_DIR, filename)
+
+
+@app.route('/debug_browser', methods=['GET'])
+def debug_browser():
+    try:
+        from utils.grok.profile import PROFILE_DIR
+        from utils.control_profile import _GLOBAL_BROWSER, init_global_browser
+
+        init_global_browser()
+
+        def _safe_int(x):
+            try:
+                return int(x)
+            except Exception:
+                return 0
+
+        async def _info():
+            ctx = await _GLOBAL_BROWSER.get_context_async()
+            pages = 0
+            try:
+                pages = len(ctx.pages) if ctx else 0
+            except Exception:
+                pages = 0
+            return {
+                'profile_dir': PROFILE_DIR,
+                'has_context': ctx is not None,
+                'pages': pages,
+                'cdp_connected': _GLOBAL_BROWSER._browser is not None,
+            }
+
+        info = _GLOBAL_BROWSER.run(_info(), timeout=10)
+        return jsonify({'ok': True, 'info': info})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/reset_browser_profile', methods=['POST'])
+def reset_browser_profile():
+    try:
+        from utils.control_profile import _GLOBAL_BROWSER
+        # Chỉ đóng trình duyệt và khởi động lại context, không xóa file vật lý
+        _GLOBAL_BROWSER.run(_GLOBAL_BROWSER.reset_async(), timeout=60)
+        return jsonify({'ok': True, 'message': 'Trình duyệt đã được khởi động lại (Dữ liệu profile vẫn giữ nguyên).'})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/open_grok_login', methods=['POST'])
+def open_grok_login():
+    try:
+        from utils.control_profile import _GLOBAL_BROWSER, init_global_browser, run_global
+
+        async def _open():
+            init_global_browser()
+            ctx = await _GLOBAL_BROWSER.get_context_async()
+            if ctx is None:
+                raise RuntimeError('Global browser context is not initialized')
+            page = await ctx.new_page()
+            await page.goto('https://grok.com/', timeout=60000)
+            return True
+
+        run_global(_open(), timeout=60)
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/pick_result_folder', methods=['POST'])
+def pick_result_folder():
+    try:
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except Exception as exc:
+            return jsonify({'ok': False, 'error': f'tkinter not available: {exc}'}), 500
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+
+        path = filedialog.askdirectory()
+
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+        if not path:
+            return jsonify({'ok': False, 'error': 'No folder selected'}), 200
+
+        return jsonify({'ok': True, 'path': os.path.abspath(path)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
 @app.route("/listmusic")
@@ -242,6 +372,105 @@ def setup_profile():
             
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/create_images_batch', methods=['POST'])
+def create_images_batch():
+    try:
+        payload = request.get_json(silent=True) or {}
+        provider = str(payload.get('provider') or '').strip()
+        out_dir_label = str(payload.get('out_dir_label') or '').strip()
+        max_tabs = payload.get('max_tabs', 5)
+        tasks = payload.get('tasks')
+
+        if not isinstance(tasks, list) or len(tasks) == 0:
+            return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
+
+        folder = _safe_folder_name(out_dir_label)
+        batch_id = uuid.uuid4().hex[:8]
+        out_folder_rel = os.path.join(folder, batch_id)
+        out_folder_abs = os.path.join(GENERATED_DIR, out_folder_rel)
+        os.makedirs(out_folder_abs, exist_ok=True)
+
+        tmp_dir = os.path.join(GENERATED_DIR, '_tmp', batch_id)
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        runner_tasks = []
+        results = []
+
+        for t in tasks:
+            form_id = str((t or {}).get('form_id') or '').strip()
+            img1 = str((t or {}).get('image1') or '')
+            img2 = str((t or {}).get('image2') or '')
+            prompt = str((t or {}).get('prompt') or '')
+
+            if not form_id:
+                continue
+
+            if not img1 or not img2 or not prompt:
+                results.append({'form_id': form_id, 'url': None, 'error': 'Thiếu ảnh hoặc prompt'})
+                continue
+
+            img1_path = os.path.join(tmp_dir, f'{form_id}-1.png')
+            img2_path = os.path.join(tmp_dir, f'{form_id}-2.png')
+            out_name = f'{form_id}.png'
+            out_abs = os.path.join(out_folder_abs, out_name)
+
+            try:
+                _write_data_url_to_file(img1, img1_path)
+                _write_data_url_to_file(img2, img2_path)
+            except Exception as exc:
+                results.append({'form_id': form_id, 'url': None, 'error': str(exc)})
+                continue
+
+            runner_tasks.append({
+                'form_id': form_id,
+                'image1': img1_path,
+                'image2': img2_path,
+                'prompt': prompt,
+                'out': out_abs,
+                'out_rel': f"{out_folder_rel}/{out_name}",
+            })
+
+        if len(runner_tasks) == 0:
+            return jsonify({'ok': True, 'results': results})
+
+        from utils.control_creat_image import run_tasks
+        from utils.control_profile import init_global_browser, run_global
+
+        async def _run_on_global_ctx():
+            from utils.control_profile import _GLOBAL_BROWSER
+
+            # ensure global browser/context is ready
+            init_global_browser()
+            ctx = await _GLOBAL_BROWSER.get_context_async()
+            if ctx is None:
+                raise RuntimeError('Global browser context is not initialized')
+
+            # Run tasks (each task uses a separate tab/page; run_tasks uses asyncio.gather)
+            await run_tasks(context=ctx, provider=provider, tasks=runner_tasks, max_tabs=max_tabs)
+
+        try:
+            run_global(_run_on_global_ctx(), timeout=3600)
+        except Exception as exc:
+            # Do NOT auto-reset/recreate profile context here.
+            # If the browser/context crashes, user can restart the server manually.
+            return jsonify({'ok': False, 'error': str(exc)}), 500
+
+        # append successful urls
+        for t in runner_tasks:
+            out_rel = t.get('out_rel')
+            out_abs = t.get('out')
+            form_id = t.get('form_id')
+            if out_rel and out_abs and os.path.exists(out_abs):
+                results.append({'form_id': form_id, 'url': f"/generated/{out_rel}", 'error': None})
+            else:
+                results.append({'form_id': form_id, 'url': None, 'error': 'Không tạo được ảnh'})
+
+        return jsonify({'ok': True, 'results': results})
+
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
 if __name__ == "__main__":

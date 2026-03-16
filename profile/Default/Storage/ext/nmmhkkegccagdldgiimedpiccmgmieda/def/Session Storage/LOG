@@ -1,2 +1,3 @@
-2026/03/16-17:20:16.630 5 Creating DB /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Session Storage since it was missing.
-2026/03/16-17:20:16.641 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Session Storage/MANIFEST-000001
+2026/03/16-20:23:14.823 7ef77 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Session Storage/MANIFEST-000001
+2026/03/16-20:23:14.823 7ef77 Recovering log #3
+2026/03/16-20:23:14.823 7ef77 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Session Storage/000003.log 

@@ -566,35 +566,40 @@ function initMusicBindings() {
 
 function initResultFolderBindings() {
     const resultBtn = document.getElementById('resultFolderBtn');
-    const resultInput = document.getElementById('resultFolderInput');
     const resultLabel = document.getElementById('resultFolderLabel');
 
-    if (!resultBtn || !resultInput || !resultLabel) return;
+    if (!resultBtn || !resultLabel) return;
 
-    resultBtn.onclick = function () {
-        resultInput.click();
-    };
+    resultBtn.onclick = async function () {
+        try {
+            const res = await fetch('/pick_result_folder', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
 
-    resultInput.onchange = function () {
-        if (!this.files || this.files.length === 0) return;
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data || data.ok !== true) {
+                const msg = (data && data.error) ? data.error : 'Không thể chọn thư mục';
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay(msg);
+                } else {
+                    alert(msg);
+                }
+                return;
+            }
 
-        const firstFile = this.files[0];
-        let folderPath = '';
-
-        if (firstFile.webkitRelativePath) {
-            const parts = firstFile.webkitRelativePath.split('/');
-            if (parts.length > 1) {
-                folderPath = parts.slice(0, -1).join('/');
+            resultLabel.textContent = data.path;
+        } catch (err) {
+            console.error('Lỗi gọi /pick_result_folder:', err);
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Lỗi kết nối đến server');
             } else {
-                folderPath = parts[0];
+                alert('Lỗi kết nối đến server');
             }
         }
-
-        if (!folderPath) {
-            folderPath = 'Đã chọn thư mục';
-        }
-
-        resultLabel.textContent = folderPath;
     };
 }
 

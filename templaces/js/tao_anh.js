@@ -297,6 +297,108 @@ function initTaoAnhPage() {
             document.body.appendChild(overlay);
         };
     }
+
+    const generateAllBtn = document.getElementById('btn-generate-all-images');
+    if (generateAllBtn) {
+        generateAllBtn.onclick = async () => {
+            const displayArea = document.getElementById('image-display-area');
+            if (!displayArea) return;
+
+            const forms = Array.from(displayArea.querySelectorAll('.workspace-container'));
+            if (forms.length === 0) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Chưa có thông tin để tạo');
+                } else {
+                    alert('Chưa có thông tin để tạo');
+                }
+                return;
+            }
+
+            const tasks = forms.map(formEl => {
+                const formId = formEl.dataset.formId || '';
+                const charImg = formEl.querySelector(`[id$="-display-character"] img`);
+                const prodImg = formEl.querySelector(`[id$="-display-product"] img`);
+                const promptEl = formEl.querySelector(`[id$="-display-description"] textarea`);
+
+                return {
+                    form_id: formId,
+                    image1: charImg ? String(charImg.getAttribute('src') || '') : '',
+                    image2: prodImg ? String(prodImg.getAttribute('src') || '') : '',
+                    prompt: promptEl ? String(promptEl.value || '') : ''
+                };
+            });
+
+            const modelSelect = document.getElementById('model-select');
+            const provider = modelSelect ? String(modelSelect.options[modelSelect.selectedIndex].textContent || '') : '';
+
+            const resultFolderLabel = document.getElementById('resultFolderLabel');
+            const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
+
+            const maxTabsInput = document.getElementById('max-tabs-input');
+            let max_tabs = 5;
+            if (maxTabsInput) {
+                const n = parseInt(String(maxTabsInput.value || '').trim(), 10);
+                if (Number.isFinite(n) && n > 0) {
+                    max_tabs = n;
+                }
+            }
+
+            try {
+                const res = await fetch('/create_images_batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ provider, out_dir_label, max_tabs, tasks })
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data || data.ok !== true) {
+                    const msg = (data && (data.error || data.message)) ? (data.error || data.message) : 'Tạo ảnh thất bại';
+                    if (typeof window.showSuccessOverlay === 'function') {
+                        window.showSuccessOverlay(msg);
+                    } else {
+                        alert(msg);
+                    }
+                    return;
+                }
+
+                const results = Array.isArray(data.results) ? data.results : [];
+                results.forEach(item => {
+                    const formId = item.form_id;
+                    const url = item.url;
+                    const error = item.error;
+                    if (!formId) return;
+
+                    const formEl = forms.find(f => (f.dataset.formId || '') === formId);
+                    if (!formEl) return;
+
+                    const resultBox = formEl.querySelector(`[id$="-display-result"]`);
+                    if (!resultBox) return;
+
+                    resultBox.innerHTML = '';
+                    if (url) {
+                        const img = document.createElement('img');
+                        img.src = url;
+                        img.alt = 'result';
+                        resultBox.appendChild(img);
+                    } else {
+                        const note = document.createElement('div');
+                        note.style.cssText = 'padding: 10px; color: #aaa; font-size: 12px;';
+                        note.textContent = error || 'Tạo ảnh thất bại';
+                        resultBox.appendChild(note);
+                    }
+                });
+            } catch (err) {
+                console.error('Lỗi gọi /create_images_batch:', err);
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Lỗi kết nối đến server');
+                } else {
+                    alert('Lỗi kết nối đến server');
+                }
+            }
+        };
+    }
 }
 
 window.PageInits = window.PageInits || {};

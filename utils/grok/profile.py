@@ -2,7 +2,8 @@ import os
 import subprocess
 import shutil
 
-PROFILE_DIR = os.path.abspath("profile")
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+PROFILE_DIR = os.path.join(_PROJECT_ROOT, "profile")
 
 
 def find_chrome():
@@ -21,7 +22,8 @@ def find_chrome():
 
 
 def setting_grok_profile():
-    os.makedirs(PROFILE_DIR, exist_ok=True)
+    if not os.path.exists(PROFILE_DIR):
+        os.makedirs(PROFILE_DIR, exist_ok=True)
 
     chrome = find_chrome()
     if not chrome:
@@ -33,6 +35,8 @@ def setting_grok_profile():
         [
             chrome,
             f"--user-data-dir={PROFILE_DIR}",
+            "--remote-debugging-port=9222",
+            "--remote-debugging-address=127.0.0.1",
             "--new-window",
             url
         ],

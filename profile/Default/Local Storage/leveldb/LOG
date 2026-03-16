@@ -1,3 +1,8 @@
-2026/03/16-17:50:04.331 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/MANIFEST-000001
-2026/03/16-17:50:04.333 5 Recovering log #28
-2026/03/16-17:50:04.334 5 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/000028.log 
+2026/03/16-20:23:14.727 7ef77 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/03/16-20:23:14.731 7ef77 Recovering log #16
+2026/03/16-20:23:14.732 7ef77 Level-0 table #20: started
+2026/03/16-20:23:14.735 7ef77 Level-0 table #20: 76920 bytes OK
+2026/03/16-20:23:14.740 7ef77 Delete type=0 #16
+2026/03/16-20:23:45.018 7ef7c Level-0 table #23: started
+2026/03/16-20:23:45.020 7ef7c Level-0 table #23: 75587 bytes OK
+2026/03/16-20:23:45.023 7ef7c Delete type=0 #21
