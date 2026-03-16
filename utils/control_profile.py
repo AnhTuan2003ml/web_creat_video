@@ -1,4 +1,4 @@
-from grok import setting_grok_profile
+from grok.profile import setting_grok_profile
 
 
 def open_profile(provider: str):
