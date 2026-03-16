@@ -7,7 +7,12 @@
     <i class="fas fa-trash-alt"></i> Gỡ cài đặt
 </button>
 
-<h2 style="margin-top: 0; font-weight: 900; color: #fff;">DANH SÁCH TÁC VỤ</h2>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 0;">
+    <h2 style="margin: 0; font-weight: 900; color: #fff;">DANH SÁCH TÁC VỤ</h2>
+    <button class="btn" id="clearTasksBtn" style="background: #444; color: #fff; padding: 10px 16px;">
+        Clear
+    </button>
+</div>
 <div class="table-container">
     <table class="task-table">
         <thead>
@@ -19,16 +24,6 @@
                 <th style="text-align: center; width: 120px;">Trạng thái</th>
             </tr>
         </thead>
-        <tbody>
-            <tr>
-                <td>01</td>
-                <td>Fashion Summer Campaign</td>
-                <td>Veo3</td>
-                <td>14/03 23:10</td>
-                <td style="text-align: center;">
-                    <span class="status-badge">Hoàn thành</span>
-                </td>
-            </tr>
-        </tbody>
+        <tbody id="taskTableBody"></tbody>
     </table>
 </div>

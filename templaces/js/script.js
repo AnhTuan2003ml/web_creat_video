@@ -26,6 +26,7 @@ async function loadScript(fileName) {
         const sceneContainer = document.getElementById('sceneContainer');
         if (sceneContainer) sceneContainer.innerHTML = '';
         currentScriptData = [];
+        updateButtonStates();
         return;
     }
     try {
@@ -36,6 +37,7 @@ async function loadScript(fileName) {
             const sceneContainer = document.getElementById('sceneContainer');
             if (sceneContainer) sceneContainer.innerHTML = '<div style="color:#f55;">Không tải được kịch bản</div>';
             currentScriptData = [];
+            updateButtonStates();
             return;
         }
         currentScriptData = body.scenes;
@@ -43,6 +45,7 @@ async function loadScript(fileName) {
     } catch (err) {
         console.error('Lỗi gọi /load_script:', err);
         currentScriptData = [];
+        updateButtonStates();
     }
 }
 
@@ -129,6 +132,9 @@ function renderScenes(scenes) {
     
     // Make scenes draggable
     makeScenesDraggable();
+    
+    // Update button states after rendering
+    updateButtonStates();
 }
 
 function deleteScene(sceneIndex) {
@@ -162,6 +168,45 @@ function showDeleteSceneModal(sceneIndex) {
     };
     
     modal.style.display = 'flex';
+}
+
+function updateButtonStates() {
+    const saveScriptBtn = document.getElementById('saveScriptBtn');
+    const deleteScriptBtn = document.getElementById('deleteScriptBtn');
+    const scriptSelect = document.getElementById('scriptSelect');
+    const sceneContainer = document.getElementById('sceneContainer');
+    
+    // Check if sceneContainer has content (has scene items)
+    const hasScenes = sceneContainer && sceneContainer.querySelectorAll('.scene-item').length > 0;
+    
+    // Check if scriptSelect has a value (not None)
+    const hasScriptSelected = scriptSelect && scriptSelect.value && scriptSelect.value !== '';
+    
+    // Update save button state
+    if (saveScriptBtn) {
+        if (hasScenes) {
+            saveScriptBtn.disabled = false;
+            saveScriptBtn.style.opacity = '1';
+            saveScriptBtn.style.cursor = 'pointer';
+        } else {
+            saveScriptBtn.disabled = true;
+            saveScriptBtn.style.opacity = '0.5';
+            saveScriptBtn.style.cursor = 'not-allowed';
+        }
+    }
+    
+    // Update delete button state
+    if (deleteScriptBtn) {
+        if (hasScriptSelected) {
+            deleteScriptBtn.disabled = false;
+            deleteScriptBtn.style.opacity = '1';
+            deleteScriptBtn.style.cursor = 'pointer';
+        } else {
+            deleteScriptBtn.disabled = true;
+            deleteScriptBtn.style.opacity = '0.5';
+            deleteScriptBtn.style.cursor = 'not-allowed';
+        }
+    }
 }
 
 function collectScenes() {
@@ -287,6 +332,154 @@ async function deleteScript() {
         console.error('Lỗi xóa kịch bản:', err);
         alert('Lỗi khi xóa kịch bản');
     }
+}
+
+async function generateScript() {
+    const modelSelect = document.getElementById('cloneVideoModelSelect');
+    const apiKeyInput = document.getElementById('cloneVideoApiKey');
+    const videoPathInput = document.getElementById('cloneVideoPathInput');
+    
+    if (!modelSelect || !apiKeyInput || !videoPathInput) {
+        alert('Vui lòng điền đầy đủ thông tin');
+        return;
+    }
+    
+    const model = modelSelect.value;
+    const apiKey = apiKeyInput.value.trim();
+    const videoPath = videoPathInput.value.trim();
+    
+    if (!model || !apiKey || !videoPath) {
+        alert('Vui lòng điền đầy đủ thông tin');
+        return;
+    }
+    
+    try {
+        // Show processing overlay
+        showProcessingOverlay('Đang tạo kịch bản...');
+        
+        const res = await fetch('/generate_script', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                video_path: videoPath,
+                model: model,
+                api_key: apiKey,
+                target_product: 'Video Clone',
+                language: 'Vietnamese'
+            })
+        });
+        
+        const body = await res.json().catch(() => ({}));
+        
+        closeProcessingOverlay();
+        
+        if (!res.ok || !body.ok) {
+            console.error('Tạo kịch bản thất bại:', body.error);
+            alert('Không thể tạo kịch bản: ' + (body.error || 'Lỗi không xác định'));
+            return;
+        }
+        
+        // Display generated scenes
+        currentScriptData = body.scenes || [];
+        renderScenes(body.scenes || []);
+        
+        // Save to config.json
+        await saveToConfig({
+            cloneVideoModel: model,
+            cloneVideoApiKey: apiKey
+        });
+        
+        // Show success message
+        showSuccessOverlay('Đã tạo kịch bản thành công!');
+        
+        // Clean up temp file after delay
+        setTimeout(async () => {
+            await cleanupTempFile(body.temp_file);
+        }, 5000);
+        
+    } catch (err) {
+        closeProcessingOverlay();
+        console.error('Lỗi tạo kịch bản:', err);
+        alert('Lỗi khi tạo kịch bản');
+    }
+}
+
+async function saveToConfig(data) {
+    try {
+        const res = await fetch('/save_config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+    } catch (err) {
+        console.error('Lỗi lưu config:', err);
+    }
+}
+
+async function cleanupTempFile(tempFile) {
+    try {
+        const res = await fetch('/cleanup_temp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ temp_file: tempFile })
+        });
+    } catch (err) {
+        console.error('Lỗi cleanup temp file:', err);
+    }
+}
+
+function showProcessingOverlay(message) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        animation: fadeIn 0.3s ease;
+    `;
+    
+    const messageBox = document.createElement('div');
+    messageBox.style.cssText = `
+        background: var(--card-bg, rgba(255,255,255,0.1));
+        border: 2px solid var(--accent-color, #3498db);
+        border-radius: 12px;
+        padding: 20px 40px;
+        color: var(--text-primary, #fff);
+        font-size: 18px;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(52, 152, 219, 0.3);
+        animation: slideUp 0.3s ease;
+    `;
+    messageBox.textContent = message;
+    
+    overlay.appendChild(messageBox);
+    document.body.appendChild(overlay);
+}
+
+function closeProcessingOverlay() {
+    const overlays = document.querySelectorAll('div[style*="position: fixed"]');
+    overlays.forEach(overlay => {
+        if (overlay.textContent.includes('Đang tạo kịch bản') || overlay.textContent.includes('Đang xử lý')) {
+            overlay.style.animation = 'fadeOut 0.3s ease';
+            setTimeout(() => {
+                if (document.body.contains(overlay)) {
+                    document.body.removeChild(overlay);
+                }
+            }, 300);
+        }
+    });
 }
 
 async function saveScript(fileName) {
@@ -1376,6 +1569,7 @@ function initWorkspaceBindings() {
     if (scriptSelect) {
         scriptSelect.onchange = async () => {
             await loadScript(scriptSelect.value);
+            updateButtonStates();
         };
         // Load script list on init
         loadScriptList();
@@ -1386,6 +1580,14 @@ function initWorkspaceBindings() {
     if (addSceneBtn) {
         addSceneBtn.onclick = () => {
             addScene();
+        };
+    }
+
+    // Bind Start button
+    const startBtn = document.querySelector('.btn-settings');
+    if (startBtn) {
+        startBtn.onclick = () => {
+            generateScript();
         };
     }
 
@@ -1439,6 +1641,9 @@ function initWorkspaceBindings() {
             closeDeleteScriptModal();
         };
     }
+    
+    // Initial button state update
+    updateButtonStates();
 
     // RENDER THEME GRID (đọc từ danh sách file)
     // tạm thời render (có thể rỗng) rồi sẽ cập nhật sau khi fetch list

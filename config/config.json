@@ -1,7 +1,7 @@
-﻿{
+{
   "API": "https://server.autovideo9999.store/",
-  "MODEL_AI": 1,
-  "API_CHAT": "AIzaSyBXCu326KqSa0LU6g4rPKd_ijMTSQVqvTQ",
+  "MODEL_AI": "gemini-2.5-flash",
+  "API_CHAT": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0",
   "VERSION": "3.2.3",
   "TAI_KHOAN": {
     "VEO": {
@@ -20,5 +20,8 @@
   "TTS": "ak_MTU0NDM1OmhvYW5nbmdvY2hpZXB2aWRlb0BnbWFpbC5jb206UWZKNTVJd2NTN0k=.2f3435fdbc4e",
   "ACCOUNT_ID": "EoUIJq59FoftSxX9g5J8",
   "RECAPTCHA": "xDMddfCrRiW7nq5CkR",
-  "PROJECT": "41bed3ad-7d07-43e4-999e-07d45a44dc"
+  "PROJECT": "41bed3ad-7d07-43e4-999e-07d45a44dc",
+  "API_KEY": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0",
+  "cloneVideoModel": "gemini-2.5-flash",
+  "cloneVideoApiKey": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0"
 }

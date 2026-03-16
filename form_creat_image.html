@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Giao di?n T?o Video</title>
+    <style>
+        body { background-color: #1a1a1a; color: #fff; font-family: sans-serif; margin: 0; padding: 15px; }
+        
+        /* Container ch�nh ch?a 4 c?t v� d?i n�t b�n ph?i */
+        .workspace-container {
+            display: flex;
+            gap: 10px;
+            height: calc(100vh - 40px);
+            align-items: stretch;
+        }
+
+        /* �?nh d?ng chung cho m?i c?t */
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex: 1;
+        }
+
+        /* Style cho n�t b?m (C?t 1 & 2) */
+        .col-header-btn {
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 12px;
+            font-size: 13px;
+            text-transform: uppercase;
+            cursor: pointer;
+            border: none;
+            color: white;
+            background-color: #ff4d4d;
+            transition: opacity 0.2s;
+        }
+
+        .col-header-btn:hover { opacity: 0.8; }
+
+        /* Style cho text ti�u d? (C?t 3 & 4) */
+        .col-header-text {
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 12px;
+            font-size: 13px;
+            text-transform: uppercase;
+            border: 2px solid #00ff88;
+            background-color: #1a1a1a;
+            color: #fff;
+        }
+
+        /* Khung n?i dung m�u den ph�a du?i */
+        .content-area {
+            flex-grow: 1;
+            border: 1px solid #444;
+            background-color: #111;
+            border-radius: 4px;
+            overflow-y: auto;
+        }
+
+        /* D?i n�t nh? b�n ph?i */
+        .action-column {
+            width: 100px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 40px; 
+        }
+
+        .btn-small {
+            background-color: #ff4d4d;
+            color: white;
+            border: none;
+            padding: 8px 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        .btn-small:hover { background-color: #e60000; }
+    </style>
+</head>
+<body>
+
+    <div class="workspace-container" id="video-workspace">
+        
+        <div class="column">
+            <button class="col-header-btn" id="btn-select-character">Chọn Nhân Vật</button>
+            <div class="content-area" id="display-character"></div>
+        </div>
+
+        <div class="column">
+            <button class="col-header-btn" id="btn-select-product">Chọn Sản Phẩm</button>
+            <div class="content-area" id="display-product"></div>
+        </div>
+
+        <div class="column">
+            <div class="col-header-text" id="label-description">Nhập Mô Tả</div>
+            <div class="content-area" id="display-description"></div>
+        </div>
+
+        <div class="column">
+            <div class="col-header-text" id="label-result">Kết Quả</div>
+            <div class="content-area" id="display-result"></div>
+        </div>
+
+        <div class="action-column">
+            <button class="btn-small" id="btn-reset-form">Xóa Form</button>
+            <button class="btn-small" id="btn-generate-video" style="padding: 15px 5px;">T?o</button>
+        </div>
+
+    </div>
+
+</body>
+</html>

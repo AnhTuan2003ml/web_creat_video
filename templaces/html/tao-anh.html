@@ -1,16 +1,14 @@
-<h2 style="margin-top: 0; font-weight: 900; color: #fff;">TẠO ẢNH</h2>
-<div class="group-box" style="margin-bottom: 25px;">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-        <div>
-            <span class="label">Prompt</span>
-            <textarea class="input-control" style="height: 120px; resize: vertical;"></textarea>
-        </div>
-        <div>
-            <span class="label">Tùy chọn</span>
-            <select class="input-control">
-                <option selected>Default</option>
-            </select>
-        </div>
+<link rel="stylesheet" href="templaces/css/tao_anh.css">
+<h2 style="margin-top: 0; font-weight: 900; color: var(--text-main); font-size: 22px; letter-spacing: 0.02em;">Tạo Ảnh</h2>
+
+<div class="image-gen-wrapper">
+    <div class="header-actions">
+        <button id="btn-add-images" class="btn-header">Thêm</button>
+        <button id="btn-input-prompt-image-all" class="btn-header">Nhập Prompt cho tất cả</button>
+        <button id="btn-generate-all-images" class="btn-header">Tạo Tất Cả</button>
     </div>
-    <button class="btn btn-gold" style="margin-top: 10px; width: 100%;">Tạo ảnh</button>
+
+    <div id="image-display-area" class="display-workspace">
+        <!-- Image forms will be rendered here -->
+    </div>
 </div>

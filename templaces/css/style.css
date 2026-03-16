@@ -173,7 +173,38 @@ body {
 #main-wrapper { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px solid var(--border-color); }
 .horizontal-tabs { display: flex; gap: 12px; overflow-x: auto; }
-.tab-item { flex: 1; min-width: 100px; background: #1a1a1a; border: 1px solid #333; color: #666; padding: 14px; text-align: center; border-radius: 8px; font-weight: 800; text-transform: uppercase; font-size: 12px; }
+.tab-item{
+    flex:1;
+    min-width:100px;
+
+    background:#1a1a1a;
+
+    border:1px solid #2f2f2f;
+
+    color:#ffd166;
+
+    padding:14px;
+
+    text-align:center;
+
+    border-radius:8px;
+
+    font-weight:800;
+
+    text-transform:uppercase;
+
+    font-size:12px;
+
+    letter-spacing:0.5px;
+
+    transition:all 0.25s ease;
+}
+.tab-item:hover{
+    border-color:#00ff88;
+    color:#ffd166;
+    box-shadow:0 0 6px rgba(0,255,136,0.4);
+    cursor:pointer;
+}
 .tab-item.active { border-color: var(--accent-cyan); color: var(--accent-cyan); }
 
 .workspace {
@@ -202,6 +233,24 @@ header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px s
     align-items: center;
     background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border: 1px solid var(--neon-green);
     flex-shrink: 0;
+}
+
+.status-processing {
+    background: rgba(255, 193, 7, 0.12);
+    border-color: #ffc107;
+    color: #ffc107;
+}
+
+.status-completed {
+    background: rgba(57, 255, 20, 0.1);
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+}
+
+.status-failed {
+    background: rgba(255, 49, 49, 0.12);
+    border-color: var(--primary-red);
+    color: var(--primary-red);
 }
 /* USER ID EDIT FIELD */
 #userId {

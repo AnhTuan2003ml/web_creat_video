@@ -22,6 +22,12 @@ from utils.control_script import (
     load_script_handler,
     save_script_handler,
     delete_script_handler,
+    generate_script_handler,
+    list_tasks_handler,
+    clear_tasks_handler,
+    save_config_handler,
+    cleanup_temp_handler,
+    upload_temp_video_handler,
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -93,6 +99,11 @@ def extract_frame():
     return extract_frame_handler()
 
 
+@app.route("/upload_temp_video", methods=["POST"])
+def upload_temp_video():
+    return upload_temp_video_handler()
+
+
 @app.route("/listscripts")
 def list_scripts():
     return list_scripts_handler()
@@ -116,6 +127,31 @@ def transcode_for_web():
 @app.route("/delete_script", methods=["POST"])
 def delete_script():
     return delete_script_handler()
+
+
+@app.route("/generate_script", methods=["POST"])
+def generate_script():
+    return generate_script_handler()
+
+
+@app.route("/list_tasks")
+def list_tasks():
+    return list_tasks_handler()
+
+
+@app.route("/clear_tasks", methods=["POST"])
+def clear_tasks():
+    return clear_tasks_handler()
+
+
+@app.route("/save_config", methods=["POST"])
+def save_config():
+    return save_config_handler()
+
+
+@app.route("/cleanup_temp", methods=["POST"])
+def cleanup_temp():
+    return cleanup_temp_handler()
 
 
 @app.route("/listthemes")

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "93b33eeb-7e9c-497d-85ec-2402058767c1",
+    "name": "Clone Video - temp_video.mp4",
+    "model": "gemini-2.5-flash",
+    "video_path": "/home/spiderman/Desktop/web_creat_video/temp_video/temp_video.mp4",
+    "status": "completed",
+    "created_at": "2026-03-16T14:33:25.958871",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/config/KichBan/_temp_prompt.txt"
+  },
+  {
+    "id": "5f8f6dc9-1fcc-4920-a759-7f8db459c6a6",
+    "name": "Clone Video - temp_video.mp4",
+    "model": "gemini-2.5-flash",
+    "video_path": "/home/spiderman/Desktop/web_creat_video/temp_video/temp_video.mp4",
+    "status": "completed",
+    "created_at": "2026-03-16T14:38:43.853928",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/config/KichBan/_temp_prompt.txt"
+  }
+]
