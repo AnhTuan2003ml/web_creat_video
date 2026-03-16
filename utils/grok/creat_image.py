@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 UPLOAD_INPUT = """
 input.hidden[type='file'][name='files'],
@@ -63,6 +64,35 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
     page = await context.new_page()
 
     try:
+
+        # =====================
+        # ensure download behavior (avoid "Save As" dialog)
+        # =====================
+
+        try:
+            download_dir = os.path.dirname(os.path.abspath(out_path))
+            if download_dir:
+                os.makedirs(download_dir, exist_ok=True)
+
+            cdp = await context.new_cdp_session(page)
+            try:
+                await cdp.send(
+                    "Page.setDownloadBehavior",
+                    {
+                        "behavior": "allow",
+                        "downloadPath": download_dir,
+                    },
+                )
+            except Exception:
+                await cdp.send(
+                    "Browser.setDownloadBehavior",
+                    {
+                        "behavior": "allow",
+                        "downloadPath": download_dir,
+                    },
+                )
+        except Exception:
+            pass
 
         # =====================
         # open imagine page

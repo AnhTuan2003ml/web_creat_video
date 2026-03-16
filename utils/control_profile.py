@@ -83,6 +83,12 @@ class _GlobalBrowser:
         def _kill_profile_chrome_best_effort() -> None:
             # Chỉ dùng khi thật sự cần (tránh làm mất session user đang mở)
             try:
+                import os
+                if os.name == "nt":
+                    return
+            except Exception:
+                pass
+            try:
                 cmd = f"fuser -k {PROFILE_DIR} 2>/dev/null"
                 subprocess.run(cmd, shell=True)
             except Exception:
