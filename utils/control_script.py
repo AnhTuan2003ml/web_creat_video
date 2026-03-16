@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import asyncio
 from datetime import datetime
 from flask import jsonify, request
 from werkzeug.utils import secure_filename
@@ -29,6 +30,53 @@ def _write_json_file(path: str, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def update_task_status(task_id, status, error=None, result_file=None):
+    """
+    Cập nhật trạng thái task trong config/tasks.json
+    """
+    tasks_file = os.path.join(BASE_DIR, "config", "tasks.json")
+    try:
+        tasks = _read_json_file(tasks_file)
+        if not isinstance(tasks, list):
+            tasks = []
+        
+        for task in tasks:
+            if task.get("id") == task_id:
+                task["status"] = status
+                if error:
+                    task["error"] = error
+                if result_file:
+                    task["result_file"] = result_file
+                break
+        
+        _write_json_file(tasks_file, tasks)
+    except Exception as e:
+        print(f"Error updating task status: {e}")
+
+def create_image_task(task_name, model):
+    """
+    Tạo một task mới trong config/tasks.json
+    """
+    tasks_file = os.path.join(BASE_DIR, "config", "tasks.json")
+    task_id = str(uuid.uuid4())
+    task = {
+        "id": task_id,
+        "name": task_name,
+        "model": model,
+        "status": "processing",
+        "created_at": datetime.now().isoformat(),
+    }
+    
+    try:
+        tasks = _read_json_file(tasks_file)
+        if not isinstance(tasks, list):
+            tasks = []
+        tasks.append(task)
+        _write_json_file(tasks_file, tasks)
+    except Exception as e:
+        print(f"Error creating task: {e}")
+        
+    return task_id
 def upload_temp_video_handler():
     """
     Flask view: upload/copy selected video into temp_video folder.

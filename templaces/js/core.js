@@ -2,11 +2,33 @@ async function loadWorkspace(page) {
     const root = document.getElementById('workspace-root');
     if (!root) return;
 
+    const slug = page.replace('.html', '');
+    
+    // Ẩn tất cả các tab content hiện có
+    const existingContents = root.querySelectorAll('.tab-content-container');
+    existingContents.forEach(el => {
+        el.style.display = 'none';
+    });
+
+    // Kiểm tra xem tab này đã được load chưa
+    let targetContent = document.getElementById(`tab-content-${slug}`);
+    if (targetContent) {
+        // Nếu đã có thì chỉ cần hiện lại
+        targetContent.style.display = 'block';
+        return;
+    }
+
+    // Nếu chưa có thì load mới và append vào root
     try {
         const res = await fetch(`/templaces/html/${page}`);
         if (!res.ok) return;
         const html = await res.text();
-        root.innerHTML = html;
+        
+        const wrapper = document.createElement('div');
+        wrapper.id = `tab-content-${slug}`;
+        wrapper.className = 'tab-content-container';
+        wrapper.innerHTML = html;
+        root.appendChild(wrapper);
     } catch (err) {
         console.error('Không thể tải workspace:', err);
     }
@@ -63,6 +85,8 @@ function initTabBindings() {
 
     tabs.forEach(tab => {
         tab.onclick = async function () {
+            if (tab.classList.contains('active')) return;
+
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
 
@@ -70,9 +94,15 @@ function initTabBindings() {
             const slug = slugifyTabLabel(label);
             const page = `${slug}.html`;
 
+            const isAlreadyLoaded = document.getElementById(`tab-content-${slug}`) !== null;
+
             await loadWorkspace(page);
-            await loadConfig();
-            initWorkspaceBindings(slug);
+            
+            // Chỉ chạy init và loadConfig nếu tab chưa từng được load
+            if (!isAlreadyLoaded) {
+                await loadConfig();
+                initWorkspaceBindings(slug);
+            }
         };
     });
 }
@@ -642,7 +672,10 @@ window.onload = async function () {
     initConfirmModalBindings();
     initTabBindings();
 
-    await loadWorkspace('home.html');
+    // Khởi tạo tab mặc định (Home) mà không xóa nội dung
+    const activeTab = document.querySelector('.horizontal-tabs .tab-item.active');
+    const defaultSlug = activeTab ? slugifyTabLabel(activeTab.textContent) : 'home';
+    await loadWorkspace(`${defaultSlug}.html`);
 
     const savedTheme = localStorage.getItem('selectedTheme');
     if (savedTheme) {
@@ -657,7 +690,7 @@ window.onload = async function () {
     initResultFolderBindings();
     initSettingsAccountBindings();
 
-    initWorkspaceBindings('home');
+    initWorkspaceBindings(defaultSlug);
 
     document.addEventListener('keydown', function (e) {
         const userIdSpan = document.getElementById('userId');

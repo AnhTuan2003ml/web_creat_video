@@ -1,20 +1,114 @@
 [
   {
-    "id": "93b33eeb-7e9c-497d-85ec-2402058767c1",
-    "name": "Clone Video - temp_video.mp4",
-    "model": "gemini-2.5-flash",
-    "video_path": "/home/spiderman/Desktop/web_creat_video/temp_video/temp_video.mp4",
-    "status": "completed",
-    "created_at": "2026-03-16T14:33:25.958871",
-    "result_file": "/home/spiderman/Desktop/web_creat_video/config/KichBan/_temp_prompt.txt"
+    "id": "fc1fd519-9bb2-4e2a-9bd6-90633e13f0ab",
+    "name": "Tạo ảnh: img-form-0_b9d0.png",
+    "model": "Grok (X-AI)",
+    "status": "failed",
+    "created_at": "2026-03-16T23:15:31.942166",
+    "error": "BrowserContext.new_page: Target page, context or browser has been closed"
   },
   {
-    "id": "5f8f6dc9-1fcc-4920-a759-7f8db459c6a6",
-    "name": "Clone Video - temp_video.mp4",
-    "model": "gemini-2.5-flash",
-    "video_path": "/home/spiderman/Desktop/web_creat_video/temp_video/temp_video.mp4",
+    "id": "384824c6-29b8-48ae-b83e-35e17da23c05",
+    "name": "Tạo ảnh: img-form-1_0a4c.png",
+    "model": "Grok (X-AI)",
+    "status": "failed",
+    "created_at": "2026-03-16T23:15:31.946953",
+    "error": "BrowserContext.new_page: Target page, context or browser has been closed"
+  },
+  {
+    "id": "697204ee-6bc6-463d-9121-7794b9649296",
+    "name": "Tạo ảnh: img-form-0_2b2f.png",
+    "model": "Grok (X-AI)",
     "status": "completed",
-    "created_at": "2026-03-16T14:38:43.853928",
-    "result_file": "/home/spiderman/Desktop/web_creat_video/config/KichBan/_temp_prompt.txt"
+    "created_at": "2026-03-16T23:24:22.660491",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/5a2ad925/img-form-0_2b2f.png"
+  },
+  {
+    "id": "fd116956-96a8-4057-ade3-a326d539b9f1",
+    "name": "Tạo ảnh: img-form-1_a3bf.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:24:22.661990",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/5a2ad925/img-form-1_a3bf.png"
+  },
+  {
+    "id": "c447fe6e-121c-4f6b-b3f5-9502c5089281",
+    "name": "Tạo ảnh: img-form-0_7d03.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:25:37.165715",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/7c1a1a3f/img-form-0_7d03.png"
+  },
+  {
+    "id": "14f0e0db-03c1-442a-a689-271ad23a6368",
+    "name": "Tạo ảnh: img-form-1_38dd.png",
+    "model": "Grok (X-AI)",
+    "status": "failed",
+    "created_at": "2026-03-16T23:25:37.170835",
+    "error": "Timeout 30000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================"
+  },
+  {
+    "id": "610ca777-7773-4d6a-a828-5358349f98ef",
+    "name": "Tạo ảnh: img-form-0_8329.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:26:37.964793",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/2b191aa7/img-form-0_8329.png"
+  },
+  {
+    "id": "cc459ddf-6cbf-4b8b-853b-f72d29999c5e",
+    "name": "Tạo ảnh: img-form-1_76de.png",
+    "model": "Grok (X-AI)",
+    "status": "failed",
+    "created_at": "2026-03-16T23:26:37.970224",
+    "error": "Timeout 30000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================"
+  },
+  {
+    "id": "9dab957e-9c0e-4906-9302-8e11ad0ae806",
+    "name": "Tạo ảnh: img-form-0_8709.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:28:45.993641",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/cab3b67b/img-form-0_8709.png"
+  },
+  {
+    "id": "4e965e31-34cb-461e-89db-6f2e58f2a095",
+    "name": "Tạo ảnh: img-form-1_5370.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:28:46.002224",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/cab3b67b/img-form-1_5370.png"
+  },
+  {
+    "id": "3610d34d-65c5-4c4e-ad89-481b1c0dbea7",
+    "name": "Tạo ảnh: img-form-0_f5b5.png",
+    "model": "Grok (X-AI)",
+    "status": "failed",
+    "created_at": "2026-03-16T23:30:54.682871",
+    "error": "Timeout 30000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================"
+  },
+  {
+    "id": "f686685f-c257-4c8d-af35-8165027242f1",
+    "name": "Tạo ảnh: img-form-1_844f.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:30:54.684796",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/ad7855eb/img-form-1_844f.png"
+  },
+  {
+    "id": "97e424b4-5045-486c-9986-886082d06700",
+    "name": "Tạo ảnh: img-form-0_8664.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:32:18.083962",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/fad28365/img-form-0_8664.png"
+  },
+  {
+    "id": "a4b421f7-8549-4845-a035-905067661abb",
+    "name": "Tạo ảnh: img-form-1_1791.png",
+    "model": "Grok (X-AI)",
+    "status": "completed",
+    "created_at": "2026-03-16T23:32:18.087538",
+    "result_file": "/home/spiderman/Desktop/web_creat_video/generated/THƯ-MỤC-KẾT-QUẢ/fad28365/img-form-1_1791.png"
   }
 ]

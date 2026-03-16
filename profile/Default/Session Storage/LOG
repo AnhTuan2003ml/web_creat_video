@@ -1,3 +1,24 @@
-2026/03/16-20:23:14.733 7ef7c Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/MANIFEST-000001
-2026/03/16-20:23:14.733 7ef7c Recovering log #3
-2026/03/16-20:23:14.733 7ef7c Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/000003.log 
+2026/03/16-23:28:45.538 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/MANIFEST-000001
+2026/03/16-23:28:45.538 5 Recovering log #29
+2026/03/16-23:28:45.539 5 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/000029.log 
+2026/03/16-23:31:23.909 7 Level-0 table #33: started
+2026/03/16-23:31:23.918 7 Level-0 table #33: 177296 bytes OK
+2026/03/16-23:31:23.922 7 Delete type=0 #29
+2026/03/16-23:31:27.103 7 Level-0 table #35: started
+2026/03/16-23:31:27.113 7 Level-0 table #35: 166106 bytes OK
+2026/03/16-23:31:27.117 7 Delete type=0 #32
+2026/03/16-23:31:27.118 7 Compacting 4@0 + 1@1 files
+2026/03/16-23:31:27.134 7 Generated table #36@0: 248 keys, 356623 bytes
+2026/03/16-23:31:27.135 7 Compacted 4@0 + 1@1 files => 356623 bytes
+2026/03/16-23:31:27.137 7 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/03/16-23:31:27.139 7 Delete type=2 #26
+2026/03/16-23:31:27.139 7 Delete type=2 #35
+2026/03/16-23:31:27.139 7 Delete type=2 #28
+2026/03/16-23:31:27.139 7 Delete type=2 #30
+2026/03/16-23:31:27.139 7 Delete type=2 #33
+2026/03/16-23:32:39.261 7 Level-0 table #38: started
+2026/03/16-23:32:39.265 7 Level-0 table #38: 546456 bytes OK
+2026/03/16-23:32:39.267 7 Delete type=0 #34
+2026/03/16-23:32:50.507 5 Level-0 table #40: started
+2026/03/16-23:32:50.515 5 Level-0 table #40: 186354 bytes OK
+2026/03/16-23:32:50.518 5 Delete type=0 #37

@@ -28,23 +28,30 @@ class _GlobalBrowser:
         self._browser = None
         self._context = None
         self._sema = None
+        self._provider = "grok"
 
     def _is_context_alive(self) -> bool:
-        ctx = self._context
-        if ctx is None:
+        if self._context is None:
             return False
         try:
-            # Accessing pages will throw if context is closed
-            _ = ctx.pages
+            # Check if we can still access pages. This will throw if context is closed.
+            _ = self._context.pages
+            # If we connected via CDP, also check if browser is still connected
+            if self._browser:
+                # Playwright's browser.is_connected() is the authoritative check for CDP
+                if not self._browser.is_connected():
+                    return False
             return True
         except Exception:
+            # Any error here means the context/browser is no longer usable
             return False
 
-    def _thread_main(self):
+    def _thread_main(self, provider="grok"):
         try:
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
-            self._loop.run_until_complete(self._async_init())
+            self._provider = provider or "grok"
+            self._loop.run_until_complete(self._async_init(provider=provider))
         except Exception as exc:
             self._init_error = exc
         finally:
@@ -52,16 +59,97 @@ class _GlobalBrowser:
             if self._loop:
                 self._loop.run_forever()
 
-    async def _async_init(self):
+    async def _async_init(self, provider="grok"):
         from playwright.async_api import async_playwright
+        import subprocess
+        import time
+
+        def _port_open(host: str, port: int) -> bool:
+            try:
+                import socket
+                with socket.create_connection((host, port), timeout=0.3):
+                    return True
+            except Exception:
+                return False
+
+        async def _wait_cdp_ready(timeout_s: float = 8.0) -> bool:
+            deadline = time.time() + float(timeout_s)
+            while time.time() < deadline:
+                if _port_open("127.0.0.1", 9222):
+                    return True
+                await asyncio.sleep(0.25)
+            return False
+
+        def _kill_profile_chrome_best_effort() -> None:
+            # Chỉ dùng khi thật sự cần (tránh làm mất session user đang mở)
+            try:
+                cmd = f"fuser -k {PROFILE_DIR} 2>/dev/null"
+                subprocess.run(cmd, shell=True)
+            except Exception:
+                pass
+            try:
+                subprocess.run(
+                    "pkill -f 'google-chrome.*--user-data-dir=" + PROFILE_DIR + "'",
+                    shell=True,
+                )
+            except Exception:
+                pass
+
+        # NOTE: KHÔNG kill chrome ở đây. Ưu tiên bám vào session/profile đang mở qua CDP.
 
         chrome_path = find_chrome()
+        
+        # Stop existing playwright if any
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except:
+                pass
+
         self._playwright = await async_playwright().start()
 
+        # Thử kết nối CDP trước nếu Chrome đang mở (để dùng đúng session user vừa login)
+        try:
+            print("DEBUG: Attempting to connect to existing Chrome via CDP (port 9222)...")
+            # Set a short timeout for CDP connection to avoid hanging
+            self._browser = await self._playwright.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=5000)
+            self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
+            print("DEBUG: Successfully connected to existing Chrome session.")
+            self._sema = asyncio.Semaphore(5)
+            return
+        except Exception as e:
+            print(f"DEBUG: CDP connection failed (normal if Chrome is closed): {e}")
+            self._browser = None
+            self._context = None
+
+        # Nếu CDP chưa chạy: tự mở Chrome bằng chính profile dự án (bật 9222) rồi connect lại
+        try:
+            print(f"DEBUG: CDP not available. Auto-opening Chrome profile for provider={provider}...")
+            if provider.lower() in ["grok", "grok (x-ai)"]:
+                setting_grok_profile()
+
+            await _wait_cdp_ready(timeout_s=10.0)
+
+            print("DEBUG: Retrying CDP connect after opening Chrome...")
+            self._browser = await self._playwright.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=15000)
+            self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
+            print("DEBUG: Successfully connected to Chrome via CDP after auto-open.")
+            self._sema = asyncio.Semaphore(5)
+            return
+        except Exception as e:
+            print(f"DEBUG: Auto-open + CDP connect still failed: {e}")
+            self._browser = None
+            self._context = None
+
+        # Nếu vẫn fail CDP: fallback cuối cùng = launch_persistent_context.
+        # Lúc này mới kill chrome đang giữ profile để tránh 'Opening in existing browser session'.
+        print("DEBUG: Falling back to launch_persistent_context (last resort)...")
+        _kill_profile_chrome_best_effort()
+
+        # launch persistent context dùng đúng profile dự án
         launch_kwargs = {
             'user_data_dir': PROFILE_DIR,
             'headless': False,
-            # Reduce automation fingerprinting (Cloudflare may block Playwright default flags)
             'ignore_default_args': ['--enable-automation'],
             'args': [
                 '--disable-dev-shm-usage',
@@ -69,40 +157,25 @@ class _GlobalBrowser:
                 '--no-default-browser-check',
                 '--password-store=basic',
                 '--disable-blink-features=AutomationControlled',
+                '--window-position=-5,-5',
+                '--window-size=1,1',
             ],
         }
         if chrome_path:
             launch_kwargs['executable_path'] = chrome_path
         else:
-            # Prefer system Chrome channel when available
             launch_kwargs['channel'] = 'chrome'
 
         try:
-            self._browser = None
+            print(f"DEBUG: Launching persistent context with Chrome: {chrome_path or 'default channel'}")
             self._context = await self._playwright.chromium.launch_persistent_context(**launch_kwargs)
+            print("DEBUG: Successfully launched persistent context at (0,-5).")
         except Exception as exc:
-            msg = str(exc)
-            # When Chrome is already running with the same --user-data-dir, Playwright may log:
-            # "Opening in existing browser session." and then the target is closed.
-            if 'Opening in existing browser session' in msg or 'Target page, context or browser has been closed' in msg:
-                # Fallback: connect to the already-open Chrome session via CDP
-                # This keeps login/Cloudflare state exactly as the user verified.
-                try:
-                    self._browser = await self._playwright.chromium.connect_over_cdp('http://127.0.0.1:9222')
-                    self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context()
-                except Exception as exc2:
-                    raise RuntimeError(
-                        f"Profile đang được một phiên Chrome khác sử dụng: {PROFILE_DIR}. "
-                        "Nếu bạn muốn dùng luôn phiên Chrome đó, hãy mở Chrome bằng nút 'THIẾT LẬP TÀI KHOẢN' (có bật remote debugging port 9222) rồi thử lại. "
-                        "Hoặc đóng toàn bộ Chrome đang dùng profile này và chạy lại. "
-                        f"CDP error: {exc2}"
-                    ) from exc
-                
-            else:
-                raise
+            print(f"DEBUG: Failed to launch persistent context: {exc}")
+            raise exc
         self._sema = asyncio.Semaphore(5)
 
-    def ensure_started(self):
+    def ensure_started(self, provider="grok"):
         if self._thread and self._thread.is_alive() and self._ready.is_set() and not self._init_error and self._is_context_alive():
             return
 
@@ -111,7 +184,7 @@ class _GlobalBrowser:
 
         self._ready.clear()
         self._init_error = None
-        self._thread = threading.Thread(target=self._thread_main, daemon=True)
+        self._thread = threading.Thread(target=self._thread_main, args=(provider,), daemon=True)
         self._thread.start()
         self._ready.wait(timeout=60)
         if self._init_error:
@@ -124,7 +197,8 @@ class _GlobalBrowser:
 
     async def get_context_async(self):
         if not self._is_context_alive():
-            await self._async_init()
+            print("DEBUG: Context is dead or browser disconnected. Re-initializing...")
+            await self._async_init(provider=self._provider)
         return self._context
 
     async def run_with_tab_slot(self, coro):
@@ -161,13 +235,22 @@ class _GlobalBrowser:
 _GLOBAL_BROWSER = _GlobalBrowser()
 
 
-def init_global_browser():
-    _GLOBAL_BROWSER.ensure_started()
+def init_global_browser(provider="grok"):
+    _GLOBAL_BROWSER.ensure_started(provider=provider)
     return True
 
 
-def run_global(coro, timeout=None):
-    return _GLOBAL_BROWSER.run(coro, timeout=timeout)
+def run_global(coro, timeout=None, provider="grok"):
+    """
+    Run a coroutine on the global browser's event loop from a different thread.
+    This is non-blocking for the Flask main thread.
+    """
+    from utils.control_profile import _GLOBAL_BROWSER
+    _GLOBAL_BROWSER.ensure_started(provider=provider)
+    
+    # Sử dụng asyncio.run_coroutine_threadsafe để không block Flask
+    future = asyncio.run_coroutine_threadsafe(coro, _GLOBAL_BROWSER._loop)
+    return future.result(timeout=timeout)
 
 
 def get_global_context():

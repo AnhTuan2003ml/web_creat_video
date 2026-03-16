@@ -1,3 +1,2 @@
-2026/03/16-20:23:14.826 7ef7c Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Local Storage/leveldb/MANIFEST-000001
-2026/03/16-20:23:14.826 7ef7c Recovering log #3
-2026/03/16-20:23:14.827 7ef7c Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Local Storage/leveldb/000003.log 
+2026/03/16-23:13:33.159 5 Creating DB /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Local Storage/leveldb since it was missing.
+2026/03/16-23:13:33.164 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Storage/ext/nmmhkkegccagdldgiimedpiccmgmieda/def/Local Storage/leveldb/MANIFEST-000001

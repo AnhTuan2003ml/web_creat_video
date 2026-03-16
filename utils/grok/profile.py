@@ -2,8 +2,12 @@ import os
 import subprocess
 import shutil
 
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# Lấy đường dẫn tuyệt đối đến thư mục gốc của project (thư mục chứa app.py)
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
 PROFILE_DIR = os.path.join(_PROJECT_ROOT, "profile")
+
+print(f"DEBUG: Profile directory set to: {PROFILE_DIR}")
 
 
 def find_chrome():

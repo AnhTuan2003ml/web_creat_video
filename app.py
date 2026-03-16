@@ -381,19 +381,26 @@ def create_images_batch():
         provider = str(payload.get('provider') or '').strip()
         out_dir_label = str(payload.get('out_dir_label') or '').strip()
         max_tabs = payload.get('max_tabs', 5)
+        ratio = str(payload.get('ratio') or '9:16').strip()
         tasks = payload.get('tasks')
 
         if not isinstance(tasks, list) or len(tasks) == 0:
             return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
 
-        folder = _safe_folder_name(out_dir_label)
-        batch_id = uuid.uuid4().hex[:8]
-        out_folder_rel = os.path.join(folder, batch_id)
-        out_folder_abs = os.path.join(GENERATED_DIR, out_folder_rel)
-        os.makedirs(out_folder_abs, exist_ok=True)
-
-        tmp_dir = os.path.join(GENERATED_DIR, '_tmp', batch_id)
-        os.makedirs(tmp_dir, exist_ok=True)
+        # Ưu tiên dùng đường dẫn tuyệt đối từ label nếu nó là một thư mục hợp lệ
+        # Nếu không thì mới dùng thư mục generated mặc định
+        if os.path.isabs(out_dir_label) and os.path.isdir(out_dir_label):
+            out_folder_abs = out_dir_label
+            # Với thư mục ngoài, ta không có URL /generated/ tiện lợi,
+            # nên ta sẽ phục vụ nó qua một route tạm hoặc trả về path tuyệt đối (tùy frontend xử lý)
+            is_custom_dir = True
+        else:
+            folder = _safe_folder_name(out_dir_label)
+            batch_id = uuid.uuid4().hex[:8]
+            out_folder_rel = os.path.join(folder, batch_id)
+            out_folder_abs = os.path.join(GENERATED_DIR, out_folder_rel)
+            os.makedirs(out_folder_abs, exist_ok=True)
+            is_custom_dir = False
 
         runner_tasks = []
         results = []
@@ -411,25 +418,19 @@ def create_images_batch():
                 results.append({'form_id': form_id, 'url': None, 'error': 'Thiếu ảnh hoặc prompt'})
                 continue
 
-            img1_path = os.path.join(tmp_dir, f'{form_id}-1.png')
-            img2_path = os.path.join(tmp_dir, f'{form_id}-2.png')
-            out_name = f'{form_id}.png'
+            out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.png'
             out_abs = os.path.join(out_folder_abs, out_name)
-
-            try:
-                _write_data_url_to_file(img1, img1_path)
-                _write_data_url_to_file(img2, img2_path)
-            except Exception as exc:
-                results.append({'form_id': form_id, 'url': None, 'error': str(exc)})
-                continue
 
             runner_tasks.append({
                 'form_id': form_id,
-                'image1': img1_path,
-                'image2': img2_path,
+                'image1_data': img1, # Truyền data url trực tiếp
+                'image2_data': img2,
                 'prompt': prompt,
                 'out': out_abs,
-                'out_rel': f"{out_folder_rel}/{out_name}",
+                'ratio': ratio,
+                'is_custom_dir': is_custom_dir,
+                'out_name': out_name,
+                'out_folder_rel': out_folder_rel if not is_custom_dir else None
             })
 
         if len(runner_tasks) == 0:
@@ -440,30 +441,30 @@ def create_images_batch():
 
         async def _run_on_global_ctx():
             from utils.control_profile import _GLOBAL_BROWSER
-
-            # ensure global browser/context is ready
-            init_global_browser()
+            init_global_browser(provider=provider)
             ctx = await _GLOBAL_BROWSER.get_context_async()
             if ctx is None:
                 raise RuntimeError('Global browser context is not initialized')
-
-            # Run tasks (each task uses a separate tab/page; run_tasks uses asyncio.gather)
-            await run_tasks(context=ctx, provider=provider, tasks=runner_tasks, max_tabs=max_tabs)
+            await run_tasks(context=ctx, provider=provider, tasks=runner_tasks, max_tabs=max_tabs, aspect_ratio=ratio)
 
         try:
-            run_global(_run_on_global_ctx(), timeout=3600)
+            run_global(_run_on_global_ctx(), timeout=3600, provider=provider)
         except Exception as exc:
-            # Do NOT auto-reset/recreate profile context here.
-            # If the browser/context crashes, user can restart the server manually.
             return jsonify({'ok': False, 'error': str(exc)}), 500
 
-        # append successful urls
+        # Gom kết quả
         for t in runner_tasks:
-            out_rel = t.get('out_rel')
-            out_abs = t.get('out')
             form_id = t.get('form_id')
-            if out_rel and out_abs and os.path.exists(out_abs):
-                results.append({'form_id': form_id, 'url': f"/generated/{out_rel}", 'error': None})
+            out_abs = t.get('out')
+            if os.path.exists(out_abs):
+                if t['is_custom_dir']:
+                    # Nếu là thư mục ngoài, trả về file:// hoặc data url để hiển thị (tạm thời trả về data url cho an toàn hiển thị)
+                    with open(out_abs, "rb") as f:
+                        b64_data = base64.b64encode(f.read()).decode('utf-8')
+                        url = f"data:image/png;base64,{b64_data}"
+                else:
+                    url = f"/generated/{t['out_folder_rel']}/{t['out_name']}"
+                results.append({'form_id': form_id, 'url': url, 'error': None})
             else:
                 results.append({'form_id': form_id, 'url': None, 'error': 'Không tạo được ảnh'})
 

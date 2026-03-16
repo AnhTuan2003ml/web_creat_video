@@ -1,3 +1,30 @@
-2026/03/16-20:22:25.661 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/MANIFEST-000001
-2026/03/16-20:22:25.661 5 Recovering log #3
-2026/03/16-20:22:25.661 5 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/000003.log 
+2026/03/16-23:14:28.022 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/MANIFEST-000001
+2026/03/16-23:14:28.022 5 Recovering log #14
+2026/03/16-23:14:28.022 5 Reusing old log /home/spiderman/Desktop/web_creat_video/profile/Default/Session Storage/000014.log 
+2026/03/16-23:24:44.546 7 Level-0 table #19: started
+2026/03/16-23:24:44.550 7 Level-0 table #19: 17059 bytes OK
+2026/03/16-23:24:44.553 7 Delete type=0 #14
+2026/03/16-23:26:06.539 7 Level-0 table #21: started
+2026/03/16-23:26:06.546 7 Level-0 table #21: 187702 bytes OK
+2026/03/16-23:26:06.550 7 Delete type=0 #18
+2026/03/16-23:26:09.629 5 Level-0 table #23: started
+2026/03/16-23:26:09.635 5 Level-0 table #23: 182962 bytes OK
+2026/03/16-23:26:09.637 5 Delete type=0 #20
+2026/03/16-23:27:10.527 7 Level-0 table #25: started
+2026/03/16-23:27:10.542 7 Level-0 table #25: 368510 bytes OK
+2026/03/16-23:27:10.547 7 Delete type=0 #22
+2026/03/16-23:27:10.548 7 Compacting 4@0 + 1@1 files
+2026/03/16-23:27:10.572 7 Generated table #26@0: 208 keys, 559628 bytes
+2026/03/16-23:27:10.572 7 Compacted 4@0 + 1@1 files => 559628 bytes
+2026/03/16-23:27:10.575 7 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/03/16-23:27:10.576 7 Delete type=2 #23
+2026/03/16-23:27:10.576 7 Delete type=2 #19
+2026/03/16-23:27:10.576 7 Delete type=2 #16
+2026/03/16-23:27:10.576 7 Delete type=2 #25
+2026/03/16-23:27:10.576 7 Delete type=2 #21
+2026/03/16-23:27:16.341 7 Level-0 table #28: started
+2026/03/16-23:27:16.347 7 Level-0 table #28: 181185 bytes OK
+2026/03/16-23:27:16.350 7 Delete type=0 #24
+2026/03/16-23:27:21.341 5 Level-0 table #30: started
+2026/03/16-23:27:21.351 5 Level-0 table #30: 183447 bytes OK
+2026/03/16-23:27:21.355 5 Delete type=0 #27

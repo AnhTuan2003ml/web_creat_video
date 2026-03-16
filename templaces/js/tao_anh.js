@@ -130,7 +130,6 @@ function _createImageForm({ characterSrc, characterName }) {
 }
 
 function _createPromptOverlay() {
-    // Create overlay container
     const overlay = document.createElement('div');
     overlay.id = 'prompt-overlay';
     overlay.style.cssText = `
@@ -146,7 +145,6 @@ function _createPromptOverlay() {
         z-index: 1000;
     `;
 
-    // Create modal content
     const modal = document.createElement('div');
     modal.style.cssText = `
         background: #1a1a1a;
@@ -158,7 +156,6 @@ function _createPromptOverlay() {
         box-shadow: 0 10px 30px rgba(0,0,0,0.8);
     `;
 
-    // Create title
     const title = document.createElement('h3');
     title.textContent = 'Nhập mô tả cho tất cả ảnh';
     title.style.cssText = `
@@ -170,7 +167,6 @@ function _createPromptOverlay() {
         text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
     `;
 
-    // Create textarea
     const textarea = document.createElement('textarea');
     textarea.id = 'prompt-textarea-all';
     textarea.placeholder = 'Nhập mô tả chung cho tất cả ảnh...';
@@ -189,7 +185,6 @@ function _createPromptOverlay() {
         line-height: 1.5;
     `;
 
-    // Create buttons container
     const buttonsContainer = document.createElement('div');
     buttonsContainer.style.cssText = `
         display: flex;
@@ -198,7 +193,6 @@ function _createPromptOverlay() {
         margin-top: 15px;
     `;
 
-    // Create cancel button
     const cancelBtn = document.createElement('button');
     cancelBtn.textContent = 'Hủy';
     cancelBtn.style.cssText = `
@@ -213,7 +207,6 @@ function _createPromptOverlay() {
         transition: background 0.3s;
     `;
 
-    // Create confirm button
     const confirmBtn = document.createElement('button');
     confirmBtn.textContent = 'Xác nhận';
     confirmBtn.style.cssText = `
@@ -228,7 +221,6 @@ function _createPromptOverlay() {
         transition: background 0.3s;
     `;
 
-    // Assemble modal
     buttonsContainer.appendChild(cancelBtn);
     buttonsContainer.appendChild(confirmBtn);
     modal.appendChild(title);
@@ -236,7 +228,6 @@ function _createPromptOverlay() {
     modal.appendChild(buttonsContainer);
     overlay.appendChild(modal);
 
-    // Add event handlers
     cancelBtn.onclick = () => {
         document.body.removeChild(overlay);
     };
@@ -244,7 +235,6 @@ function _createPromptOverlay() {
     confirmBtn.onclick = () => {
         const promptText = textarea.value.trim();
         if (promptText) {
-            // Find all textarea elements in description areas
             const descriptionTextareas = document.querySelectorAll('[id$="-display-description"] textarea');
             descriptionTextareas.forEach(textarea => {
                 textarea.value = promptText;
@@ -253,7 +243,6 @@ function _createPromptOverlay() {
         document.body.removeChild(overlay);
     };
 
-    // Close overlay when clicking outside
     overlay.onclick = (e) => {
         if (e.target === overlay) {
             document.body.removeChild(overlay);
@@ -261,6 +250,49 @@ function _createPromptOverlay() {
     };
 
     return overlay;
+}
+
+function _showErrorOverlay(message) {
+    const overlay = document.createElement('div');
+    overlay.id = 'error-modal-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85); display: flex; align-items: center;
+        justify-content: center; z-index: 10000; color: white; font-family: sans-serif;
+    `;
+    
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #222; padding: 30px; border-radius: 12px;
+        max-width: 500px; width: 90%; text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid #444;
+    `;
+    
+    const title = document.createElement('h2');
+    title.innerText = '⚠️ CẦN THIẾT LẬP TRÌNH DUYỆT';
+    title.style.color = '#ff4d4d';
+    title.style.marginBottom = '20px';
+    
+    const msg = document.createElement('p');
+    msg.innerText = message;
+    msg.style.lineHeight = '1.6';
+    msg.style.fontSize = '16px';
+    msg.style.marginBottom = '25px';
+    
+    const btn = document.createElement('button');
+    btn.innerText = 'ĐÃ HIỂU';
+    btn.style.cssText = `
+        background: #007bff; color: white; border: none;
+        padding: 12px 30px; border-radius: 6px; cursor: pointer;
+        font-weight: bold; transition: background 0.2s;
+    `;
+    btn.onclick = () => document.body.removeChild(overlay);
+    
+    content.appendChild(title);
+    content.appendChild(msg);
+    content.appendChild(btn);
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
 }
 
 function initTaoAnhPage() {
@@ -289,7 +321,6 @@ function initTaoAnhPage() {
         };
     }
 
-    // Add event handler for "Nhập Prompt cho tất cả" button
     const promptAllBtn = document.getElementById('btn-input-prompt-image-all');
     if (promptAllBtn) {
         promptAllBtn.onclick = () => {
@@ -309,7 +340,7 @@ function initTaoAnhPage() {
                 if (typeof window.showSuccessOverlay === 'function') {
                     window.showSuccessOverlay('Chưa có thông tin để tạo');
                 } else {
-                    alert('Chưa có thông tin để tạo');
+                    _showErrorOverlay('Chưa có thông tin để tạo');
                 }
                 return;
             }
@@ -331,6 +362,9 @@ function initTaoAnhPage() {
             const modelSelect = document.getElementById('model-select');
             const provider = modelSelect ? String(modelSelect.options[modelSelect.selectedIndex].textContent || '') : '';
 
+            const aspectSelect = document.getElementById('aspect_ratio');
+            const ratio = aspectSelect ? String(aspectSelect.value || '9:16').trim() : '9:16';
+
             const resultFolderLabel = document.getElementById('resultFolderLabel');
             const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
 
@@ -349,7 +383,7 @@ function initTaoAnhPage() {
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ provider, out_dir_label, max_tabs, tasks })
+                    body: JSON.stringify({ provider, out_dir_label, max_tabs, ratio, tasks })
                 });
 
                 const data = await res.json().catch(() => ({}));
@@ -358,37 +392,43 @@ function initTaoAnhPage() {
                     if (typeof window.showSuccessOverlay === 'function') {
                         window.showSuccessOverlay(msg);
                     } else {
-                        alert(msg);
+                        _showErrorOverlay(msg);
                     }
                     return;
                 }
 
-                const results = Array.isArray(data.results) ? data.results : [];
-                results.forEach(item => {
-                    const formId = item.form_id;
-                    const url = item.url;
-                    const error = item.error;
-                    if (!formId) return;
+            const results = Array.isArray(data.results) ? data.results : [];
+            results.forEach(item => {
+                const formId = item.form_id;
+                const url = item.url;
+                const error = item.error;
+                if (!formId) return;
 
-                    const formEl = forms.find(f => (f.dataset.formId || '') === formId);
-                    if (!formEl) return;
+                const formEl = forms.find(f => (f.dataset.formId || '') === formId);
+                if (!formEl) return;
 
-                    const resultBox = formEl.querySelector(`[id$="-display-result"]`);
-                    if (!resultBox) return;
+                const resultBox = formEl.querySelector(`[id$="-display-result"]`);
+                if (!resultBox) return;
 
-                    resultBox.innerHTML = '';
-                    if (url) {
-                        const img = document.createElement('img');
-                        img.src = url;
-                        img.alt = 'result';
-                        resultBox.appendChild(img);
-                    } else {
-                        const note = document.createElement('div');
-                        note.style.cssText = 'padding: 10px; color: #aaa; font-size: 12px;';
-                        note.textContent = error || 'Tạo ảnh thất bại';
-                        resultBox.appendChild(note);
-                    }
-                });
+                resultBox.innerHTML = '';
+                if (url) {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.alt = 'result';
+                    img.style.maxWidth = '100%';
+                    img.style.maxHeight = '100%';
+                    resultBox.appendChild(img);
+                    
+                    // Thêm nút mở thư mục nếu là custom dir (tùy chọn)
+                    resultBox.title = "Click để xem ảnh";
+                    resultBox.onclick = () => window.open(url, '_blank');
+                } else {
+                    const note = document.createElement('div');
+                    note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                    note.textContent = error || 'Tạo ảnh thất bại';
+                    resultBox.appendChild(note);
+                }
+            });
             } catch (err) {
                 console.error('Lỗi gọi /create_images_batch:', err);
                 if (typeof window.showSuccessOverlay === 'function') {
