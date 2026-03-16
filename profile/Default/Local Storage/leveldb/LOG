@@ -1,6 +1,0 @@
-2026/03/16-23:41:57.525 4060 Reusing MANIFEST D:\New folder\new_creat_video\profile\Default\Local Storage\leveldb/MANIFEST-000001
-2026/03/16-23:41:57.531 4060 Recovering log #17
-2026/03/16-23:41:57.532 4060 Reusing old log D:\New folder\new_creat_video\profile\Default\Local Storage\leveldb/000017.log 
-2026/03/16-23:42:57.547 1a18 Level-0 table #21: started
-2026/03/16-23:42:57.626 1a18 Level-0 table #21: 77086 bytes OK
-2026/03/16-23:42:57.644 1a18 Delete type=0 #17

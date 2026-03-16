@@ -16,6 +16,14 @@ def find_chrome():
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
+<<<<<<< HEAD
+=======
+
+        os.path.expandvars(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"C:\Users\%USERNAME%\AppData\Local\Google\Chrome\Application\chrome.exe"),
+    ]
+>>>>>>> 8d63c7c4a82f5b0310f3ef76f86a479541c728b4
 
         os.path.expandvars(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
