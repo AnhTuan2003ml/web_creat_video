@@ -156,6 +156,12 @@ async function loadConfig() {
             setSelectByValueOrText(sidebarModelSelect, data.MODEL_AI);
         }
 
+        // Model select with ID
+        const modelSelect = document.getElementById('model-select');
+        if (modelSelect) {
+            setSelectByValueOrText(modelSelect, data.MODEL_AI);
+        }
+
         const cloneVideoModelSelect = document.getElementById('cloneVideoModelSelect');
         setSelectByValueOrText(cloneVideoModelSelect, data.MODEL_AI);
 
@@ -592,6 +598,40 @@ function initResultFolderBindings() {
     };
 }
 
+function initSettingsAccountBindings() {
+    const settingsBtn = document.getElementById('btn-settings-account');
+    const modelSelect = document.getElementById('model-select');
+
+    if (!settingsBtn || !modelSelect) return;
+
+    settingsBtn.onclick = async function () {
+        const selectedModel = modelSelect.options[modelSelect.selectedIndex].textContent;
+        
+        try {
+            const response = await fetch('/setup_profile', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ 
+                    model: selectedModel 
+                })
+            });
+
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                showSuccessOverlay('Thiết lập tài khoản thành công!');
+            } else {
+                showSuccessOverlay('Thiết lập tài khoản thất bại: ' + (result.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Lỗi thiết lập tài khoản:', error);
+            showSuccessOverlay('Lỗi kết nối đến server');
+        }
+    };
+}
+
 window.onload = async function () {
     await loadOverlays();
     initConfirmModalBindings();
@@ -610,6 +650,7 @@ window.onload = async function () {
     initMusicBindings();
 
     initResultFolderBindings();
+    initSettingsAccountBindings();
 
     initWorkspaceBindings('home');
 

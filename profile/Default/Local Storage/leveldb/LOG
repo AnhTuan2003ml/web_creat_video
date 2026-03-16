@@ -1,0 +1,17 @@
+2026/03/16-17:35:15.939 5 Reusing MANIFEST /home/spiderman/Desktop/web_creat_video/profile/Default/Local Storage/leveldb/MANIFEST-000001
+2026/03/16-17:35:15.942 5 Recovering log #23
+2026/03/16-17:35:15.942 5 Level-0 table #26: started
+2026/03/16-17:35:15.944 5 Level-0 table #26: 77811 bytes OK
+2026/03/16-17:35:15.946 5 Delete type=0 #23
+2026/03/16-17:35:24.846 7 Level-0 table #29: started
+2026/03/16-17:35:24.849 7 Level-0 table #29: 73692 bytes OK
+2026/03/16-17:35:24.851 7 Delete type=0 #27
+2026/03/16-17:35:24.851 5 Compacting 4@0 + 1@1 files
+2026/03/16-17:35:24.854 5 Generated table #30@0: 226 keys, 78744 bytes
+2026/03/16-17:35:24.854 5 Compacted 4@0 + 1@1 files => 78744 bytes
+2026/03/16-17:35:24.856 5 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/03/16-17:35:24.857 5 Delete type=2 #24
+2026/03/16-17:35:24.857 5 Delete type=2 #19
+2026/03/16-17:35:24.857 5 Delete type=2 #26
+2026/03/16-17:35:24.857 5 Delete type=2 #29
+2026/03/16-17:35:24.857 5 Delete type=2 #21

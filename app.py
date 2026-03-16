@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 import os
 import sys
 import subprocess
@@ -209,6 +209,39 @@ def list_themes():
             )
 
     return jsonify(items)
+
+
+@app.route('/setup_profile', methods=['POST'])
+def setup_profile():
+    try:
+        data = request.get_json()
+        if not data or 'model' not in data:
+            return jsonify({'success': False, 'error': 'Missing model parameter'})
+        
+        model = data['model']
+        
+        # Import and run control_profile.py
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
+        
+        from control_profile import setting_grok_profile
+        
+        # Map model names to functions
+        model_functions = {
+            'Grok (X-AI)': setting_grok_profile,
+            'Veo3 (Google)': lambda: print("Veo3 profile setup not implemented yet"),
+            'Kling AI': lambda: print("Kling AI profile setup not implemented yet")
+        }
+        
+        if model in model_functions:
+            result = model_functions[model]()
+            return jsonify({'success': True, 'message': f'Profile setup completed for {model}'})
+        else:
+            return jsonify({'success': False, 'error': f'Unknown model: {model}'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 if __name__ == "__main__":
