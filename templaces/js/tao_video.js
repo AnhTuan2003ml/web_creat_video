@@ -1,5 +1,1235 @@
+function _getNextVideoIndex(displayArea) {
+    let startIndex = 0;
+    const existingRows = Array.from(displayArea.querySelectorAll('.video-row'));
+    existingRows.forEach((el) => {
+        const v = parseInt(String(el.dataset.videoIndex || ''), 10);
+        if (Number.isFinite(v) && v > startIndex) startIndex = v;
+    });
+    return startIndex + 1;
+}
+
+function _setRowCreateBtnState(videoIndex, isRunning) {
+    const btn = document.getElementById(`video-btn-create-${videoIndex}`);
+    if (!btn) return;
+    btn.textContent = isRunning ? 'Dừng' : 'Tạo';
+    btn.dataset.running = isRunning ? '1' : '0';
+}
+
+function _setAllRowCreateBtnState(isRunning) {
+    const rows = Array.from(document.querySelectorAll('#video-display-area .video-row'));
+    rows.forEach((rowEl) => {
+        const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+        if (idx > 0) _setRowCreateBtnState(idx, isRunning);
+    });
+}
+
+function _collectOneVideoTaskFromRow(rowEl) {
+    const videoIndex = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+    const form_id = `video_${videoIndex}`;
+    const defaultImage = String(rowEl.dataset.defaultImage || '');
+
+    let effect_key = String(rowEl.dataset.effectKey || '');
+    const effectSelect = document.getElementById(`video-effect-${videoIndex}`);
+    if (effectSelect) {
+        effect_key = String(effectSelect.value || '').trim();
+        rowEl.dataset.effectKey = effect_key;
+    }
+
+    let scenes = [];
+    const raw = String(rowEl.dataset.scenes || '');
+    if (raw) {
+        try { scenes = JSON.parse(raw) || []; } catch (e) { scenes = []; }
+    }
+    if (!Array.isArray(scenes) || scenes.length === 0) {
+        scenes = [{ scene: 1, prompt: '', image: '' }];
+    }
+
+    const normalizedScenes = scenes.map((s, i) => {
+        const prompt = String((s && s.prompt) ? s.prompt : '').trim();
+        const overrideImage = String((s && s.image) ? s.image : '');
+        const image = overrideImage ? overrideImage : defaultImage;
+        return { scene: i + 1, prompt, image };
+    });
+
+    return { form_id, scenes: normalizedScenes, effect_key };
+}
+
+function _ensureVideoSettingsModal() {
+    let modal = document.getElementById('videoSettingsModal');
+    if (modal) return modal;
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = `
+<div id="videoSettingsModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="max-width: 900px; width: 92%; max-height: 88vh; display: flex; flex-direction: column;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px;">
+            <div style="font-weight: 800;">Thiết lập video</div>
+            <button id="videoSettingsCloseBtn" type="button" class="modal-cancel">Đóng</button>
+        </div>
+
+        <div id="videoSettingsHeader" style="margin-top: 10px; position: sticky; top: 0; z-index: 2; background: inherit; padding-bottom: 10px;">
+            <div style="margin-bottom: 6px;">Chọn kịch bản</div>
+            <select id="videoScriptSelect" class="input-control"></select>
+        </div>
+
+        <div id="videoSceneContainer" style="flex: 1; overflow: auto; margin-top: 0; padding-right: 6px;"></div>
+
+        <div id="videoSettingsFooter" style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 10px;">
+            <button id="videoSettingsAddPromptBtn" type="button" class="btn-header" style="padding: 10px 12px; font-size: 13px; font-weight: 900;">Thêm prompt</button>
+            <button id="videoSettingsConfirmBtn" type="button" class="modal-confirm">Xác nhận</button>
+        </div>
+    </div>
+</div>
+    `.trim();
+    modal = wrapper.firstElementChild;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function _renumberVideoSceneItems() {
+    const container = document.getElementById('videoSceneContainer');
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll('.scene-item'));
+    items.forEach((el, idx) => {
+        const sceneIndex = idx + 1;
+        el.dataset.sceneIndex = String(sceneIndex);
+        const title = el.querySelector('[data-role="scene-title"]');
+        if (title) title.textContent = `Cảnh ${sceneIndex}`;
+    });
+}
+
+function _createVideoSceneBlock(scene, idx, videoIndex, defaultImage) {
+    const sceneIndex = idx + 1;
+    const block = document.createElement('div');
+    block.className = 'scene-item';
+    block.dataset.videoIndex = String(videoIndex);
+    block.dataset.sceneIndex = String(sceneIndex);
+    
+    // Restore custom image if present in scene data
+    const sceneImg = String(scene && scene.image ? scene.image : '');
+    if (sceneImg) {
+        block.dataset.sceneImage = sceneImg;
+    }
+
+    block.style.cssText = 'background: color-mix(in srgb, var(--card-bg) 92%, transparent); border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent); border-radius: 10px; padding: 12px; margin-bottom: 10px;';
+
+    const titleRow = document.createElement('div');
+    titleRow.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 8px;';
+
+    const title = document.createElement('div');
+    title.dataset.role = 'scene-title';
+    title.style.cssText = 'font-weight: 800;';
+    title.textContent = `Cảnh ${scene.scene || sceneIndex}`;
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn-header';
+    delBtn.textContent = 'Xóa';
+    delBtn.style.cssText = 'flex: 0 0 auto; padding: 8px 10px; font-size: 12px; font-weight: 900; background: color-mix(in srgb, var(--border-color) 70%, transparent);';
+    delBtn.onclick = () => {
+        try { block.remove(); } catch (e) {
+            if (block && block.parentNode) block.parentNode.removeChild(block);
+        }
+        _renumberVideoSceneItems();
+    };
+
+    titleRow.appendChild(title);
+    titleRow.appendChild(delBtn);
+
+    const promptLabel = document.createElement('div');
+    promptLabel.style.cssText = 'margin-bottom: 6px; color: #ddd; font-weight: 700;';
+    promptLabel.textContent = 'Prompt';
+
+    const prompt = document.createElement('textarea');
+    prompt.className = 'input-control';
+    prompt.value = String(scene && scene.prompt ? scene.prompt : '');
+    prompt.dataset.role = 'scene-prompt';
+    prompt.style.cssText = 'width: 100%; min-height: 110px; resize: vertical;';
+
+    const imageLabel = document.createElement('div');
+    imageLabel.style.cssText = 'margin-top: 10px; margin-bottom: 6px; color: #ddd; font-weight: 700;';
+    imageLabel.textContent = 'Chọn ảnh cho cảnh';
+
+    const imageRow = document.createElement('div');
+    imageRow.style.cssText = 'display: flex; align-items: center; gap: 10px;';
+
+    const pickBtn = document.createElement('button');
+    pickBtn.type = 'button';
+    pickBtn.className = 'btn-header';
+    pickBtn.style.cssText = 'flex: 0 0 auto; padding: 10px 12px; font-size: 13px;';
+    pickBtn.textContent = 'Chọn ảnh';
+
+    const preview = document.createElement('img');
+    preview.alt = 'scene-image';
+    preview.style.cssText = 'width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); display: none;';
+
+    // Priority: Custom scene image > Default video image
+    if (sceneImg) {
+        preview.src = sceneImg;
+        preview.style.display = '';
+    } else if (defaultImage) {
+        preview.src = defaultImage;
+        preview.style.display = '';
+    }
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.style.display = 'none';
+
+    pickBtn.onclick = () => {
+        fileInput.value = '';
+        fileInput.click();
+    };
+
+    fileInput.onchange = (e) => {
+        const f = e && e.target && e.target.files ? e.target.files[0] : null;
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const src = String(ev && ev.target ? ev.target.result : '');
+            if (!src) return;
+            preview.src = src;
+            preview.style.display = '';
+            block.dataset.sceneImage = src;
+        };
+        reader.readAsDataURL(f);
+    };
+
+    imageRow.appendChild(pickBtn);
+    imageRow.appendChild(preview);
+    imageRow.appendChild(fileInput);
+
+    block.appendChild(titleRow);
+    block.appendChild(promptLabel);
+    block.appendChild(prompt);
+    block.appendChild(imageLabel);
+    block.appendChild(imageRow);
+    return block;
+}
+
+async function _loadVideoScriptList() {
+    const select = document.getElementById('videoScriptSelect');
+    if (!select) return;
+
+    try {
+        const res = await fetch('/listscripts');
+        const names = await res.json().catch(() => []);
+        select.innerHTML = '<option value="" selected>None</option>';
+        (Array.isArray(names) ? names : []).forEach((name) => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = String(name || '').endsWith('.txt') ? String(name).slice(0, -4) : String(name || '');
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        select.innerHTML = '<option value="" selected>None</option>';
+    }
+}
+
+let _ffmpegEffectsCache = null;
+let _ffmpegEffectsPromise = null;
+
+async function _loadFfmpegEffects() {
+    if (_ffmpegEffectsCache) return _ffmpegEffectsCache;
+    if (_ffmpegEffectsPromise) return _ffmpegEffectsPromise;
+
+    _ffmpegEffectsPromise = (async () => {
+        try {
+            const res = await fetch('/config/ffmpeg_effects.json');
+            const data = await res.json().catch(() => null);
+            _ffmpegEffectsCache = Array.isArray(data) ? data : [];
+            return _ffmpegEffectsCache;
+        } catch (e) {
+            _ffmpegEffectsCache = [];
+            return _ffmpegEffectsCache;
+        } finally {
+            _ffmpegEffectsPromise = null;
+        }
+    })();
+
+    return _ffmpegEffectsPromise;
+}
+
+async function _populateEffectSelect(selectEl, rowEl) {
+    if (!selectEl) return;
+    const effects = await _loadFfmpegEffects();
+
+    selectEl.innerHTML = '';
+    const optNone = document.createElement('option');
+    optNone.value = '';
+    optNone.textContent = 'Không hiệu ứng';
+    optNone.title = '';
+    selectEl.appendChild(optNone);
+
+    (Array.isArray(effects) ? effects : []).forEach((eff) => {
+        const key = String(eff && eff.key ? eff.key : '');
+        const nameVi = String(eff && eff.name_vi ? eff.name_vi : key);
+        const desc = String(eff && eff.description ? eff.description : '');
+        if (!key) return;
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = nameVi;
+        opt.title = desc;
+        opt.dataset.description = desc;
+        selectEl.appendChild(opt);
+    });
+
+    const saved = rowEl ? String(rowEl.dataset.effectKey || '') : '';
+    if (saved) {
+        selectEl.value = saved;
+    }
+
+    const _syncTitle = () => {
+        const opt = selectEl.options && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex] : null;
+        const desc = opt ? String(opt.dataset.description || opt.title || '') : '';
+        selectEl.title = desc;
+    };
+    _syncTitle();
+
+    selectEl.onchange = () => {
+        if (rowEl) rowEl.dataset.effectKey = String(selectEl.value || '');
+        _syncTitle();
+    };
+    selectEl.onmouseenter = _syncTitle;
+}
+
+function _setVideoSceneStatus(videoIndex, text) {
+    const el = document.getElementById(`video-scene-status-${videoIndex}`);
+    if (!el) return;
+    el.textContent = String(text || '');
+}
+
+function _setVideoProgress(videoIndex, percent, sceneIndex, totalScenes) {
+    const fill = document.getElementById(`progress-fill-${videoIndex}`);
+    const text = document.getElementById(`progress-text-${videoIndex}`);
+    const p = Math.max(0, Math.min(100, parseInt(String(percent || '0'), 10) || 0));
+    if (fill) fill.style.width = `${p}%`;
+    if (text) {
+        const sIdx = parseInt(String(sceneIndex || ''), 10);
+        const sTot = parseInt(String(totalScenes || ''), 10);
+        if (Number.isFinite(sIdx) && sIdx > 0 && Number.isFinite(sTot) && sTot > 0) {
+            text.textContent = `${sIdx}/${sTot}`;
+        } else {
+            text.textContent = `${p}%`;
+        }
+    }
+}
+
+function _setVideoResultLink(videoIndex, url) {
+    const el = document.getElementById(`video-result-link-${videoIndex}`);
+    if (!el) return;
+    const u = String(url || '').trim();
+    if (!u) {
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = `<button id="video-remerge-btn-${videoIndex}" type="button" class="btn-header" style="padding: 8px 10px; font-size: 12px; font-weight: 900; width: 100%;">Ghép lại</button>`;
+    const btn = el.querySelector('button');
+    if (btn) {
+        btn.onclick = async () => {
+            const rowEl = document.getElementById(`video-row-${videoIndex}`);
+            const taskId = rowEl ? String(rowEl.dataset.taskId || '') : '';
+            if (!taskId) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Không tìm thấy task để ghép lại');
+                } else {
+                    alert('Không tìm thấy task để ghép lại');
+                }
+                return;
+            }
+
+            // Re-collect current effect from UI (source of truth)
+            let effect_key = rowEl ? String(rowEl.dataset.effectKey || '') : '';
+            const effectSelect = document.getElementById(`video-effect-${videoIndex}`);
+            if (effectSelect) {
+                effect_key = String(effectSelect.value || '').trim();
+                if (rowEl) rowEl.dataset.effectKey = effect_key;
+            }
+
+            const musicSelect = document.getElementById('musicSelect');
+            const randomMusicCb = document.getElementById('random-music-checkbox');
+            const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
+
+            let music_url = '';
+            let music_name = '';
+            if (musicSelect) {
+                const opts = Array.from(musicSelect.options || []);
+                const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
+                if (useRandomMusic && selectable.length > 0) {
+                    const pick = selectable[Math.floor(Math.random() * selectable.length)];
+                    music_url = String(pick.value || '').trim();
+                    music_name = String(pick.textContent || '').trim();
+                } else {
+                    const opt = musicSelect.options[musicSelect.selectedIndex];
+                    if (opt && String(opt.value || '').trim()) {
+                        music_url = String(opt.value || '').trim();
+                        music_name = String(opt.textContent || '').trim();
+                    }
+                }
+            }
+
+            _setVideoSceneStatus(videoIndex, 'Đang ghép lại');
+            try {
+                if (rowEl) rowEl.dataset.remerging = '1';
+            } catch (e) {}
+            try {
+                const res = await fetch('/remerge_video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id: taskId, effect_key, music_url, music_name })
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body.ok) {
+                    _setVideoSceneStatus(videoIndex, `Lỗi: ${body && body.error ? body.error : 'Không thể ghép lại'}`);
+                    return;
+                }
+                const newUrl = String(body.result_url || '');
+                if (newUrl) {
+                    const freshUrl = newUrl + (newUrl.includes('?') ? '&' : '?') + `v=${Date.now()}`;
+                    const row = document.getElementById(`video-row-${videoIndex}`);
+                    if (row) row.dataset.resultUrl = freshUrl;
+                    _setVideoResultLink(videoIndex, freshUrl);
+                    const playBtn = document.getElementById(`video-play-btn-${videoIndex}`);
+                    if (playBtn) playBtn.style.display = 'flex';
+                }
+                _setVideoSceneStatus(videoIndex, 'Hoàn tất');
+            } catch (e) {
+                _setVideoSceneStatus(videoIndex, 'Lỗi ghép lại');
+            } finally {
+                try {
+                    if (rowEl) rowEl.dataset.remerging = '0';
+                } catch (e) {}
+            }
+        };
+    }
+}
+
+function _renderVideoScenes(scenes, videoIndex) {
+    const container = document.getElementById('videoSceneContainer');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const rowEl = document.getElementById(`video-row-${videoIndex}`);
+    const defaultImage = rowEl ? String(rowEl.dataset.defaultImage || '') : '';
+
+    const list = Array.isArray(scenes) ? scenes : [];
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding: 10px; color: #aaa;';
+        empty.textContent = 'Chưa có cảnh nào trong kịch bản.';
+        container.appendChild(empty);
+        return;
+    }
+
+    list.forEach((scene, idx) => {
+        const block = _createVideoSceneBlock(scene, idx, videoIndex, defaultImage);
+        container.appendChild(block);
+    });
+    _renumberVideoSceneItems();
+}
+
+async function _loadVideoScript(fileName, videoIndex) {
+    if (!fileName) {
+        _renderVideoScenes([], videoIndex);
+        return;
+    }
+    try {
+        const res = await fetch(`/load_script?name=${encodeURIComponent(fileName)}`);
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body.ok || !Array.isArray(body.scenes)) {
+            _renderVideoScenes([], videoIndex);
+            return;
+        }
+        _renderVideoScenes(body.scenes, videoIndex);
+    } catch (e) {
+        _renderVideoScenes([], videoIndex);
+    }
+}
+
+function _updateScriptBadge(index) {
+    const rowEl = document.getElementById(`video-row-${index}`);
+    const badge = document.getElementById(`video-script-badge-${index}`);
+    if (!rowEl || !badge) return;
+
+    const scriptName = String(rowEl.dataset.scriptName || '').trim();
+    const scenesRaw = String(rowEl.dataset.scenes || '').trim();
+    
+    let text = 'None';
+    let color = '#aaa';
+
+    if (scriptName && scriptName !== 'None') {
+        text = scriptName;
+        color = '#00ff88';
+    }
+
+    if (scenesRaw) {
+        try {
+            const scenes = JSON.parse(scenesRaw);
+            if (Array.isArray(scenes) && scenes.length > 0) {
+                // If there's a script name but it's a custom list of scenes (user added/removed/edited)
+                text = `Tùy chỉnh * (${scenes.length} cảnh)`;
+                color = '#ffaa00';
+            }
+        } catch (e) {}
+    }
+
+    badge.textContent = text;
+    badge.style.color = color;
+}
+
+function _createVideoRow(index, defaultImage, titleText) {
+    const row = document.createElement('div');
+    row.className = 'video-row';
+    row.id = `video-row-${index}`;
+    row.dataset.videoIndex = String(index);
+    row.dataset.defaultImage = String(defaultImage || '');
+    row.style.cssText = 'padding: 10px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px;';
+
+    const inputCol = document.createElement('div');
+    inputCol.className = 'video-col input';
+    inputCol.id = `video-input-${index}`;
+    inputCol.style.cssText = 'display: flex; flex-direction: column; gap: 8px; font-weight: 900;';
+    const inputLabel = document.createElement('div');
+    inputLabel.textContent = `Video ${index}`;
+    const previewWrap = document.createElement('div');
+    previewWrap.style.cssText = 'position: relative; width: 100%; max-width: 190px;';
+
+    const inputImg = document.createElement('img');
+    inputImg.alt = 'input';
+    inputImg.style.cssText = 'width: 100%; max-width: 190px; max-height: 220px; height: auto; object-fit: contain; background: color-mix(in srgb, var(--card-bg) 75%, black); border-radius: 10px; border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent); display: none;';
+    if (defaultImage) {
+        inputImg.src = defaultImage;
+        inputImg.style.display = '';
+    }
+
+    const playBtn = document.createElement('div');
+    playBtn.id = `video-play-btn-${index}`;
+    playBtn.style.cssText = 'display:none; position:absolute; inset: 0; align-items:center; justify-content:center; cursor:pointer; border-radius: 10px; background: rgba(0,0,0,0.25);';
+    playBtn.innerHTML = `<div style="width: 54px; height: 54px; border-radius: 999px; background: rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; border: 1px solid rgba(255,255,255,0.35); font-size: 22px; font-weight: 900;">▶</div>`;
+    playBtn.onclick = () => {
+        const rowEl = document.getElementById(`video-row-${index}`);
+        const url = rowEl ? String(rowEl.dataset.resultUrl || '') : '';
+        if (!url) return;
+        const title = `Video ${index}`;
+        if (typeof window.openVideoOverlay === 'function') {
+            window.openVideoOverlay(url, title);
+        } else if (typeof openVideoOverlay === 'function') {
+            openVideoOverlay(url, title);
+        } else {
+            window.open(url, '_blank');
+        }
+    };
+
+    previewWrap.appendChild(inputImg);
+    previewWrap.appendChild(playBtn);
+
+    inputCol.appendChild(inputLabel);
+    inputCol.appendChild(previewWrap);
+
+    const progress = document.createElement('div');
+    progress.className = 'video-col progress';
+    progress.id = `video-progress-${index}`;
+    progress.innerHTML = `
+        <div style="flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="font-weight: 900; font-size: 12px;">Tiến độ</div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+                <div class="progress-bar" style="flex: 1; height: 10px; background: color-mix(in srgb, var(--card-bg) 70%, black); border: 1px solid var(--border-color); border-radius: 999px; overflow: hidden;">
+                    <div class="progress-fill" id="progress-fill-${index}" style="width: 0%; height: 100%; background: #00ff88;"></div>
+                </div>
+                <span class="progress-text" id="progress-text-${index}" style="flex: 0 0 auto; font-weight: 800; font-size: 12px;">0%</span>
+            </div>
+            <div id="video-scene-status-${index}" style="font-size: 12px; font-weight: 800; opacity: 0.9;"></div>
+        </div>
+    `.trim();
+    progress.style.cssText = 'display: flex; align-items: center; gap: 8px;';
+
+    const effectCol = document.createElement('div');
+    effectCol.className = 'video-col effect';
+    effectCol.id = `video-effect-col-${index}`;
+    effectCol.style.cssText = 'display: flex; flex-direction: column; align-items: stretch; gap: 6px;';
+    const effectLabel = document.createElement('div');
+    effectLabel.textContent = 'Hiệu ứng ghép video';
+    effectLabel.style.cssText = 'font-weight: 900; font-size: 12px;';
+    const effectSelect = document.createElement('select');
+    effectSelect.className = 'input-control';
+    effectSelect.id = `video-effect-${index}`;
+    effectSelect.style.cssText = 'width: 100%; max-width: none;';
+    effectCol.appendChild(effectLabel);
+    effectCol.appendChild(effectSelect);
+    _populateEffectSelect(effectSelect, row);
+
+    const result = document.createElement('div');
+    result.className = 'video-col result';
+    result.id = `video-result-${index}`;
+    result.innerHTML = `<img src="" id="result-img-${index}" class="result-img" style="display:none; max-height: 84px; border-radius: 10px;" />`;
+
+    const settings = document.createElement('div');
+    settings.className = 'video-col settings';
+    settings.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+
+    const badgeLabel = document.createElement('div');
+    badgeLabel.style.cssText = 'font-weight: 900; font-size: 11px; opacity: 0.8;';
+    badgeLabel.textContent = 'Kịch bản:';
+
+    const badge = document.createElement('div');
+    badge.id = `video-script-badge-${index}`;
+    badge.style.cssText = 'font-weight: 800; font-size: 12px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;';
+    badge.textContent = 'None';
+
+    const btnSetting = document.createElement('button');
+    btnSetting.className = 'btn-setting';
+    btnSetting.id = `video-btn-setting-${index}`;
+    btnSetting.type = 'button';
+    btnSetting.textContent = '⚙️ Thiết lập kịch bản';
+    btnSetting.style.cssText = 'width: 100%; height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--border-color); background: color-mix(in srgb, var(--card-bg) 70%, black); color: var(--text-main); cursor: pointer; font-weight: 900; text-align: left;';
+    
+    settings.appendChild(badgeLabel);
+    settings.appendChild(badge);
+    settings.appendChild(btnSetting);
+
+    const action = document.createElement('div');
+    action.className = 'video-col action';
+    const btnCreate = document.createElement('button');
+    btnCreate.className = 'btn-create';
+    btnCreate.id = `video-btn-create-${index}`;
+    btnCreate.type = 'button';
+    btnCreate.textContent = 'Tạo';
+    btnCreate.style.cssText = 'width: 100%; padding: 10px; border-radius: 10px; border: none; background: var(--gradient-btn); color: var(--text-main); font-weight: 900; cursor: pointer;';
+    const btnDelete = document.createElement('button');
+    btnDelete.className = 'btn-delete';
+    btnDelete.id = `video-btn-delete-${index}`;
+    btnDelete.type = 'button';
+    btnDelete.textContent = 'Xóa';
+    btnDelete.style.cssText = 'width: 100%; padding: 10px; border-radius: 10px; border: none; background: color-mix(in srgb, var(--border-color) 70%, transparent); color: var(--text-main); font-weight: 900; cursor: pointer;';
+
+    action.style.cssText = 'display: flex; gap: 8px;';
+    action.appendChild(btnCreate);
+    action.appendChild(btnDelete);
+
+    const resultLink = document.createElement('div');
+    resultLink.id = `video-result-link-${index}`;
+    resultLink.style.cssText = 'margin-top: 8px; font-size: 12px; font-weight: 800;';
+    action.appendChild(resultLink);
+
+    btnSetting.onclick = async () => {
+        const modal = _ensureVideoSettingsModal();
+        modal.dataset.videoIndex = String(index);
+        modal.style.display = 'flex';
+
+        const closeBtn = document.getElementById('videoSettingsCloseBtn');
+        if (closeBtn) {
+            closeBtn.onclick = () => {
+                modal.style.display = 'none';
+            };
+        }
+
+        const confirmBtn = document.getElementById('videoSettingsConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.onclick = () => {
+                const scriptSelect = document.getElementById('videoScriptSelect');
+                const scriptName = scriptSelect ? String(scriptSelect.value || '') : '';
+
+                const rowEl = document.getElementById(`video-row-${index}`);
+                const defaultImage = rowEl ? String(rowEl.dataset.defaultImage || '') : '';
+                if (rowEl) {
+                    rowEl.dataset.scriptName = scriptName;
+
+                    const sceneItems = document.querySelectorAll('#videoSceneContainer .scene-item');
+                    const scenes = Array.from(sceneItems).map((el, i) => {
+                        const promptEl = el.querySelector('textarea[data-role="scene-prompt"]');
+                        const prompt = promptEl ? String(promptEl.value || '') : '';
+                        const overrideImage = String(el.dataset.sceneImage || '');
+                        const image = (overrideImage && overrideImage !== defaultImage) ? overrideImage : '';
+                        return {
+                            scene: i + 1,
+                            prompt,
+                            image,
+                        };
+                    });
+                    rowEl.dataset.scenes = JSON.stringify(scenes);
+                    _updateScriptBadge(index);
+                }
+
+                modal.style.display = 'none';
+            };
+        }
+
+        modal.onclick = (e) => {
+            if (e && e.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+
+        const addPromptBtn = document.getElementById('videoSettingsAddPromptBtn');
+        if (addPromptBtn) {
+            addPromptBtn.onclick = () => {
+                const container = document.getElementById('videoSceneContainer');
+                if (!container) return;
+
+                // If we previously rendered an empty placeholder text, clear it before adding a form.
+                if (container.querySelectorAll('.scene-item').length === 0) {
+                    container.innerHTML = '';
+                }
+
+                const rowEl = document.getElementById(`video-row-${index}`);
+                const defaultImage = rowEl ? String(rowEl.dataset.defaultImage || '') : '';
+                const nextIdx = container.querySelectorAll('.scene-item').length;
+                const scene = { scene: nextIdx + 1, prompt: '', image: '' };
+                const block = _createVideoSceneBlock(scene, nextIdx, index, defaultImage);
+                container.appendChild(block);
+                _renumberVideoSceneItems();
+            };
+        }
+
+    await _loadVideoScriptList();
+    const scriptSelect = document.getElementById('videoScriptSelect');
+    if (scriptSelect) {
+        const rowEl = document.getElementById(`video-row-${index}`);
+        const savedScript = rowEl ? String(rowEl.dataset.scriptName || '') : '';
+        scriptSelect.value = savedScript;
+        scriptSelect.onchange = async () => {
+            const rowEl = document.getElementById(`video-row-${index}`);
+            if (rowEl) {
+                rowEl.dataset.scriptName = scriptSelect.value;
+                rowEl.dataset.scenes = ''; // Reset custom scenes when script changes
+            }
+            await _loadVideoScript(scriptSelect.value, index);
+            _updateScriptBadge(index);
+        };
+    }
+    _updateScriptBadge(index);
+
+    const rowElForLoad = document.getElementById(`video-row-${index}`);
+        const savedScenesRaw = rowElForLoad ? String(rowElForLoad.dataset.scenes || '') : '';
+        if (savedScenesRaw) {
+            try {
+                const savedScenes = JSON.parse(savedScenesRaw);
+                if (Array.isArray(savedScenes) && savedScenes.length > 0) {
+                    _renderVideoScenes(savedScenes, index);
+                } else {
+                    await _loadVideoScript((scriptSelect ? scriptSelect.value : ''), index);
+                }
+            } catch (e) {
+                await _loadVideoScript((scriptSelect ? scriptSelect.value : ''), index);
+            }
+        } else {
+            await _loadVideoScript((scriptSelect ? scriptSelect.value : ''), index);
+        }
+    };
+
+    btnCreate.onclick = async () => {
+        if (typeof window._toggleOneVideo === 'function') {
+            await window._toggleOneVideo(index);
+        }
+    };
+
+    btnDelete.onclick = () => {
+        try { row.remove(); } catch (e) {
+            if (row && row.parentNode) row.parentNode.removeChild(row);
+        }
+    };
+
+    _updateScriptBadge(index);
+    row.appendChild(inputCol);
+    row.appendChild(progress);
+    row.appendChild(effectCol);
+    row.appendChild(settings);
+    row.appendChild(action);
+    return row;
+}
+
 function initTaoVideoPage() {
+    const addBtn = document.getElementById('btn-add-video');
+    const startBtn = document.getElementById('btn-start-video');
+    const saveBtn = document.getElementById('btn-save-video');
+    const displayArea = document.getElementById('video-display-area');
+    if (!addBtn || !displayArea) return;
+
+    if (saveBtn) {
+        saveBtn.onclick = async () => {
+            const rows = Array.from(displayArea.querySelectorAll('.video-row'));
+            const taskIds = rows
+                .map((r) => String((r && r.dataset && r.dataset.taskId) ? r.dataset.taskId : '').trim())
+                .filter((x) => !!x);
+
+            if (taskIds.length === 0) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Không có video nào để lưu');
+                } else {
+                    alert('Không có video nào để lưu');
+                }
+                return;
+            }
+
+            try {
+                const res = await fetch('/save_video_results', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_ids: taskIds }),
+                });
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body.ok) {
+                    const msg = body && body.error ? body.error : 'Không thể lưu video';
+                    if (typeof window.showSuccessOverlay === 'function') {
+                        window.showSuccessOverlay(msg);
+                    } else {
+                        alert(msg);
+                    }
+                    return;
+                }
+
+                const urls = body && body.result_urls ? body.result_urls : {};
+                rows.forEach((rowEl) => {
+                    const tid = String(rowEl.dataset.taskId || '').trim();
+                    const newUrl = urls && tid ? String(urls[tid] || '').trim() : '';
+                    if (!newUrl) return;
+                    rowEl.dataset.resultUrl = newUrl;
+                    const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+                    if (idx > 0) {
+                        _setVideoResultLink(idx, newUrl);
+                        const playBtn = document.getElementById(`video-play-btn-${idx}`);
+                        if (playBtn) playBtn.style.display = 'flex';
+                        _setVideoSceneStatus(idx, 'Đã lưu');
+                    }
+                });
+
+                // Clear UI list after saving
+                try {
+                    displayArea.innerHTML = '';
+                    displayArea.classList.remove('is-visible');
+                } catch (e) {}
+
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Đã lưu thành công');
+                } else {
+                    alert('Đã lưu thành công');
+                }
+            } catch (e) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Lỗi lưu video');
+                } else {
+                    alert('Lỗi lưu video');
+                }
+            }
+        };
+    }
+
+    addBtn.onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.multiple = true;
+        input.onchange = (e) => {
+            const files = Array.from(e && e.target && e.target.files ? e.target.files : []);
+            if (files.length === 0) return;
+
+            displayArea.classList.add('is-visible');
+
+            let nextIndex = _getNextVideoIndex(displayArea);
+            files.forEach((file) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const src = String(ev && ev.target ? ev.target.result : '');
+                    if (!src) return;
+                    const row = _createVideoRow(nextIndex, src);
+                    displayArea.appendChild(row);
+                    nextIndex += 1;
+                };
+                reader.readAsDataURL(file);
+            });
+        };
+        input.click();
+    };
+
+    let _createVideosPollingTimer = null;
+    let _createVideosRunning = false;
+    let _createVideosPending = null; // task_id -> videoIndex
+
+    window._toggleOneVideo = async (videoIndex) => {
+        const idx = parseInt(String(videoIndex || ''), 10) || 0;
+        if (idx <= 0) return;
+        const rowEl = document.getElementById(`video-row-${idx}`);
+        if (!rowEl) return;
+
+        const btn = document.getElementById(`video-btn-create-${idx}`);
+        const isRunning = !!(btn && String(btn.dataset.running || '') === '1');
+        const taskId = String(rowEl.dataset.taskId || '').trim();
+
+        if (isRunning && taskId) {
+            try {
+                await fetch('/cancel_video_task', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id: taskId }),
+                });
+            } catch (e) {}
+
+            if (_createVideosPending && _createVideosPending[taskId]) {
+                delete _createVideosPending[taskId];
+            }
+            _setRowCreateBtnState(idx, false);
+            _setVideoSceneStatus(idx, 'Đã hủy');
+            return;
+        }
+
+        const rows = Array.from(displayArea.querySelectorAll('.video-row'));
+        if (rows.length === 0) return;
+
+        const modelSelect = document.getElementById('model-select');
+        const provider = modelSelect ? String(modelSelect.options[modelSelect.selectedIndex].textContent || '') : '';
+
+        const aspectSelect = document.getElementById('aspect_ratio');
+        const ratio = aspectSelect ? String(aspectSelect.value || '9:16').trim() : '9:16';
+
+        const qualitySelect = document.getElementById('video-quality-select');
+        const quality = qualitySelect ? String(qualitySelect.value || '1080p').trim() : '1080p';
+
+        const resultFolderLabel = document.getElementById('resultFolderLabel');
+        const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
+        if (!out_dir_label || out_dir_label.toLowerCase().includes('thư mục')) {
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Vui lòng chọn thư mục lưu kết quả');
+            } else {
+                alert('Vui lòng chọn thư mục lưu kết quả');
+            }
+            return;
+        }
+
+        const maxTabsInput = document.getElementById('max-tabs-input');
+        let max_tabs = 5;
+        if (maxTabsInput) {
+            const n = parseInt(String(maxTabsInput.value || '').trim(), 10);
+            if (Number.isFinite(n) && n > 0) max_tabs = n;
+        }
+
+        const musicSelect = document.getElementById('musicSelect');
+        const randomMusicCb = document.getElementById('random-music-checkbox');
+        const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
+
+        let music_url = '';
+        let music_name = '';
+        if (musicSelect) {
+            const opts = Array.from(musicSelect.options || []);
+            const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
+            if (useRandomMusic && selectable.length > 0) {
+                const pick = selectable[Math.floor(Math.random() * selectable.length)];
+                music_url = String(pick.value || '').trim();
+                music_name = String(pick.textContent || '').trim();
+            } else {
+                const opt = musicSelect.options[musicSelect.selectedIndex];
+                if (opt && String(opt.value || '').trim()) {
+                    music_url = String(opt.value || '').trim();
+                    music_name = String(opt.textContent || '').trim();
+                }
+            }
+        }
+
+        const task = _collectOneVideoTaskFromRow(rowEl);
+
+        // reset UI
+        _setVideoProgress(idx, 0, null, null);
+        _setVideoSceneStatus(idx, '');
+        _setVideoResultLink(idx, '');
+
+        _setRowCreateBtnState(idx, true);
+        _setVideoSceneStatus(idx, 'Đang tạo cảnh 1');
+
+        try {
+            const res = await fetch('/create_video_one_start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider,
+                    out_dir_label,
+                    max_tabs,
+                    ratio,
+                    quality,
+                    music_url,
+                    music_name,
+                    task,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data || data.ok !== true) {
+                const msg = data && data.error ? data.error : 'Không thể bắt đầu tạo video';
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay(msg);
+                } else {
+                    alert(msg);
+                }
+                _setRowCreateBtnState(idx, false);
+                return;
+            }
+
+            const newTaskId = String(data.task_id || '').trim();
+            if (newTaskId) {
+                rowEl.dataset.taskId = newTaskId;
+                _createVideosPending = _createVideosPending || {};
+                _createVideosPending[newTaskId] = idx;
+            }
+
+            await _pollOnce();
+            if (!_createVideosPollingTimer) {
+                _createVideosPollingTimer = setInterval(_pollOnce, 1500);
+            }
+        } catch (e) {
+            _setRowCreateBtnState(idx, false);
+        }
+    };
+
+    const _stopPolling = () => {
+        if (_createVideosPollingTimer) {
+            clearInterval(_createVideosPollingTimer);
+            _createVideosPollingTimer = null;
+        }
+        _createVideosPending = null;
+        _createVideosRunning = false;
+    };
+
+    const _pollOnce = async () => {
+        if (!_createVideosPending) return;
+        const ids = Object.keys(_createVideosPending);
+        if (ids.length === 0) {
+            _stopPolling();
+            if (startBtn) startBtn.textContent = 'Bắt đầu';
+            return;
+        }
+
+        const checks = ids.map(async (taskId) => {
+            const videoIndex = _createVideosPending[taskId];
+            try {
+                const res = await fetch(`/task_video?task_id=${encodeURIComponent(taskId)}`);
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body || body.ok !== true) {
+                    return;
+                }
+
+                const rowEl = document.getElementById(`video-row-${videoIndex}`);
+                if (rowEl && String(rowEl.dataset.remerging || '') === '1') {
+                    return;
+                }
+                const status = String(body.status || '');
+                const progress = body.progress_percent;
+                const sceneIndex = body.scene_index;
+                const totalScenes = body.total_scenes;
+                const phase = String(body.phase || '');
+                const resultUrl = String(body.result_url || '');
+
+                if (progress !== undefined && progress !== null) {
+                    _setVideoProgress(videoIndex, progress, sceneIndex, totalScenes);
+                }
+
+                if (status === 'completed') {
+                    _setVideoSceneStatus(videoIndex, 'Hoàn tất');
+                    if (resultUrl) {
+                        _setVideoResultLink(videoIndex, resultUrl);
+                        if (rowEl) rowEl.dataset.resultUrl = resultUrl;
+                        const playBtn = document.getElementById(`video-play-btn-${videoIndex}`);
+                        if (playBtn) playBtn.style.display = 'flex';
+                    }
+                    _setRowCreateBtnState(videoIndex, false);
+                    delete _createVideosPending[taskId];
+                    return;
+                }
+
+                if (status === 'failed') {
+                    const err = String(body.error || 'Lỗi');
+                    _setVideoSceneStatus(videoIndex, `Lỗi: ${err}`);
+                    _setRowCreateBtnState(videoIndex, false);
+                    delete _createVideosPending[taskId];
+                    return;
+                }
+
+                if (status === 'cancelled') {
+                    const err = String(body.error || 'Đã hủy');
+                    _setVideoSceneStatus(videoIndex, `Đã hủy: ${err}`);
+                    _setRowCreateBtnState(videoIndex, false);
+                    delete _createVideosPending[taskId];
+                    return;
+                }
+
+                if (phase === 'merging') {
+                    _setVideoSceneStatus(videoIndex, 'Đang ghép video');
+                    return;
+                }
+
+                if (sceneIndex && totalScenes) {
+                    _setVideoSceneStatus(videoIndex, `Đang tạo cảnh ${sceneIndex}/${totalScenes}`);
+                } else if (sceneIndex) {
+                    _setVideoSceneStatus(videoIndex, `Đang tạo cảnh ${sceneIndex}`);
+                }
+            } catch (e) {
+                // ignore transient
+            }
+        });
+
+        await Promise.all(checks);
+    };
+
+    if (startBtn) {
+        startBtn.onclick = async () => {
+            if (_createVideosRunning) {
+                _stopPolling();
+                try {
+                    await fetch('/cancel_create_videos_batch', { method: 'POST' });
+                } catch (e) {}
+                startBtn.textContent = 'Bắt đầu';
+                _setAllRowCreateBtnState(false);
+                return;
+            }
+
+            const rows = Array.from(displayArea.querySelectorAll('.video-row'));
+            if (rows.length === 0) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Vui lòng thêm ảnh để tạo video');
+                } else {
+                    alert('Vui lòng thêm ảnh để tạo video');
+                }
+                return;
+            }
+
+            const modelSelect = document.getElementById('model-select');
+            const provider = modelSelect ? String(modelSelect.options[modelSelect.selectedIndex].textContent || '') : '';
+
+            const aspectSelect = document.getElementById('aspect_ratio');
+            const ratio = aspectSelect ? String(aspectSelect.value || '9:16').trim() : '9:16';
+
+            const qualitySelect = document.getElementById('video-quality-select');
+            const quality = qualitySelect ? String(qualitySelect.value || '1080p').trim() : '1080p';
+
+            const resultFolderLabel = document.getElementById('resultFolderLabel');
+            const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
+            if (!out_dir_label || out_dir_label.toLowerCase().includes('thư mục')) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Vui lòng chọn thư mục lưu kết quả');
+                } else {
+                    alert('Vui lòng chọn thư mục lưu kết quả');
+                }
+                return;
+            }
+
+            const maxTabsInput = document.getElementById('max-tabs-input');
+            let max_tabs = 5;
+            if (maxTabsInput) {
+                const n = parseInt(String(maxTabsInput.value || '').trim(), 10);
+                if (Number.isFinite(n) && n > 0) max_tabs = n;
+            }
+
+            const musicSelect = document.getElementById('musicSelect');
+            const randomMusicCb = document.getElementById('random-music-checkbox');
+            const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
+
+            let music_url = '';
+            let music_name = '';
+            if (musicSelect) {
+                const opts = Array.from(musicSelect.options || []);
+                const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
+                if (useRandomMusic && selectable.length > 0) {
+                    const pick = selectable[Math.floor(Math.random() * selectable.length)];
+                    music_url = String(pick.value || '').trim();
+                    music_name = String(pick.textContent || '').trim();
+                } else {
+                    const opt = musicSelect.options[musicSelect.selectedIndex];
+                    if (opt && String(opt.value || '').trim()) {
+                        music_url = String(opt.value || '').trim();
+                        music_name = String(opt.textContent || '').trim();
+                    }
+                }
+            }
+
+            const tasks = rows.map((rowEl) => {
+                const videoIndex = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+                const form_id = `video_${videoIndex}`;
+                const defaultImage = String(rowEl.dataset.defaultImage || '');
+                const effect_key = String(rowEl.dataset.effectKey || '');
+
+                let scenes = [];
+                const raw = String(rowEl.dataset.scenes || '');
+                if (raw) {
+                    try { scenes = JSON.parse(raw) || []; } catch (e) { scenes = []; }
+                }
+                if (!Array.isArray(scenes) || scenes.length === 0) {
+                    scenes = [{ scene: 1, prompt: '', image: '' }];
+                }
+
+                const normalizedScenes = scenes.map((s, i) => {
+                    const prompt = String((s && s.prompt) ? s.prompt : '').trim();
+                    const overrideImage = String((s && s.image) ? s.image : '');
+                    const image = overrideImage ? overrideImage : defaultImage;
+                    return { scene: i + 1, prompt, image };
+                });
+
+                return { form_id, scenes: normalizedScenes, effect_key };
+            }).filter(t => t && t.form_id);
+
+            // reset UI
+            rows.forEach((rowEl) => {
+                const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+                _setVideoProgress(idx, 0, null, null);
+                _setVideoSceneStatus(idx, '');
+                _setVideoResultLink(idx, '');
+            });
+
+            _setAllRowCreateBtnState(true);
+
+            startBtn.textContent = 'Dừng';
+            _createVideosRunning = true;
+
+            try {
+                const res = await fetch('/create_videos_batch_start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider,
+                        out_dir_label,
+                        max_tabs,
+                        ratio,
+                        quality,
+                        music_url,
+                        music_name,
+                        tasks,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data || data.ok !== true) {
+                    const msg = data && data.error ? data.error : 'Không thể bắt đầu tạo video';
+                    if (typeof window.showSuccessOverlay === 'function') {
+                        window.showSuccessOverlay(msg);
+                    } else {
+                        alert(msg);
+                    }
+                    _stopPolling();
+                    startBtn.textContent = 'Bắt đầu';
+                    return;
+                }
+
+                const mappings = Array.isArray(data.tasks) ? data.tasks : [];
+                _createVideosPending = {};
+                mappings.forEach((m) => {
+                    if (!m || !m.task_id || !m.form_id) return;
+                    const mForm = String(m.form_id || '');
+                    const idx = parseInt(mForm.replace(/^video_/, ''), 10);
+                    if (!Number.isFinite(idx) || idx <= 0) return;
+                    _createVideosPending[String(m.task_id)] = idx;
+
+                    const rowEl = document.getElementById(`video-row-${idx}`);
+                    if (rowEl) rowEl.dataset.taskId = String(m.task_id);
+                });
+
+                await _pollOnce();
+                if (_createVideosRunning) {
+                    _createVideosPollingTimer = setInterval(_pollOnce, 1500);
+                }
+            } catch (e) {
+                console.error('start videos error', e);
+                _stopPolling();
+                startBtn.textContent = 'Bắt đầu';
+            }
+        };
+    }
 }
 
 window.PageInits = window.PageInits || {};
 window.PageInits['tao-video'] = initTaoVideoPage;
+

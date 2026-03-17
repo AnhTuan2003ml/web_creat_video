@@ -54,33 +54,40 @@
             <div>
                 <span class="label">Model AI Đang dùng</span>
                 <select class="input-control" id="model-select">
-                    <option>Veo3 (Google)</option>
                     <option>Grok (X-AI)</option>
+                    <option>Veo3 (Google)</option>
                     <option>Kling AI</option>
                 </select>
             </div>
             <button class="btn btn-settings" id="btn-settings-account"><i class="fas fa-user-shield"></i> THIẾT LẬP TÀI KHOẢN</button>
         </div>
 
-        <div class="section-title">Cấu hình Output</div>
-        <div class="group-box" style="flex-direction: row; gap: 8px;">
-            <div style="flex: 1;">
-                <span class="label">Chất lượng</span>
-                <select class="input-control">
-                    <option selected>1080p</option>
-                    <option>720p</option>
-                </select>
+        <div class="section-title">Cấu hình chạy</div>
+        <div class="group-box" style="gap: 8px;">
+            <div style="display: flex; flex-direction: row; gap: 8px;">
+                <div style="flex: 1;">
+                    <span class="label">Chất lượng</span>
+                    <select class="input-control" id="video-quality-select">
+                        <option selected>1080p</option>
+                        <option>720p</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <span class="label">Tỉ lệ</span>
+                    <select id="aspect_ratio" class="input-control">
+                        <option selected>9:16</option>
+                        <option>16:9</option>
+                    </select>
+                </div>
             </div>
-            <div style="flex: 1;">
-                <span class="label">Tỉ lệ</span>
-                <select id="aspect_ratio" class="input-control">
-                    <option selected>9:16</option>
-                    <option>16:9</option>
-                </select>
-            </div>
-        </div>
 
-        <div class="group-box">
+            <button id="resultFolderBtn" class="btn btn-folder" style="width: 100%;">
+                <i class="fas fa-folder-open"></i>
+                <span id="resultFolderLabel">THƯ MỤC KẾT QUẢ</span>
+            </button>
+            <!-- input ẩn dùng để chọn thư mục -->
+            <input id="resultFolderInput" type="file" webkitdirectory directory multiple style="display:none;">
+
             <div>
                 <span class="label">Số tab chạy song song</span>
                 <input class="input-control" id="max-tabs-input" type="number" min="1" max="10" value="5" />
@@ -105,19 +112,12 @@
                 </button>
             </div>
             <label class="random-inline">
-                <input type="checkbox" checked>
+                <input id="random-music-checkbox" type="checkbox" checked>
                 <span>Chế độ Random nhạc</span>
             </label>
         </div>
         <!-- input ẩn dùng để chọn file nhạc / video thêm mới -->
         <input id="addMusicInput" type="file" accept="audio/*,video/*" style="display:none;">
-        <div class="section-title">Thư Mục Lưu Kết Quả</div>
-        <button id="resultFolderBtn" class="btn btn-folder" style="width: 100%; margin-top: auto;">
-            <i class="fas fa-folder-open"></i>
-            <span id="resultFolderLabel">THƯ MỤC KẾT QUẢ</span>
-        </button>
-        <!-- input ẩn dùng để chọn thư mục -->
-        <input id="resultFolderInput" type="file" webkitdirectory directory multiple style="display:none;">
     </div>
 
     <div id="main-wrapper">

@@ -307,6 +307,10 @@ function initTaoAnhPage() {
                 const files = Array.from(e.target.files);
                 const displayArea = document.getElementById('image-display-area');
                 if (!displayArea) return;
+
+                if (!displayArea.classList.contains('is-visible')) {
+                    displayArea.classList.add('is-visible');
+                }
                 files.forEach(file => {
                     const reader = new FileReader();
                     reader.onload = (event) => {
@@ -332,6 +336,27 @@ function initTaoAnhPage() {
     const generateAllBtn = document.getElementById('btn-generate-all-images');
     if (generateAllBtn) {
         generateAllBtn.onclick = async () => {
+            if (_createImagesRunning) {
+                _createImagesRunning = false;
+                if (_createImagesPollingTimer) {
+                    try { clearInterval(_createImagesPollingTimer); } catch (e) {}
+                    _createImagesPollingTimer = null;
+                }
+                _createImagesPending = null;
+
+                if (_createImagesAbortController) {
+                    try { _createImagesAbortController.abort(); } catch (e) {}
+                    _createImagesAbortController = null;
+                }
+
+                try {
+                    await fetch('/cancel_create_images_batch', { method: 'POST' });
+                } catch (e) {}
+
+                generateAllBtn.textContent = 'Tạo Tất Cả';
+                return;
+            }
+
             const displayArea = document.getElementById('image-display-area');
             if (!displayArea) return;
 
@@ -368,6 +393,25 @@ function initTaoAnhPage() {
             const resultFolderLabel = document.getElementById('resultFolderLabel');
             const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
 
+            // Require output folder selection before starting (same as video)
+            const _looksLikeAbsPath = (p) => {
+                const s = String(p || '').trim();
+                if (!s) return false;
+                // Windows: C:\ or D:\ ...
+                if (/^[a-zA-Z]:\\/.test(s)) return true;
+                // Unix-like absolute
+                if (s.startsWith('/')) return true;
+                return false;
+            };
+            if (!_looksLikeAbsPath(out_dir_label)) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Vui lòng chọn thư mục lưu kết quả trước khi tạo ảnh');
+                } else {
+                    _showErrorOverlay('Vui lòng chọn thư mục lưu kết quả trước khi tạo ảnh');
+                }
+                return;
+            }
+
             const maxTabsInput = document.getElementById('max-tabs-input');
             let max_tabs = 5;
             if (maxTabsInput) {
@@ -377,13 +421,26 @@ function initTaoAnhPage() {
                 }
             }
 
+            forms.forEach(formEl => {
+                const resultBox = formEl && formEl.querySelector ? formEl.querySelector('[id$="-display-result"]') : null;
+                if (!resultBox) return;
+                resultBox.innerHTML = '';
+                resultBox.onclick = null;
+                resultBox.title = '';
+            });
+
+            _createImagesAbortController = new AbortController();
+            _createImagesRunning = true;
+            generateAllBtn.textContent = 'Dừng';
+
             try {
-                const res = await fetch('/create_images_batch', {
+                const res = await fetch('/create_images_batch_start', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ provider, out_dir_label, max_tabs, ratio, tasks })
+                    body: JSON.stringify({ provider, out_dir_label, max_tabs, ratio, tasks }),
+                    signal: _createImagesAbortController.signal,
                 });
 
                 const data = await res.json().catch(() => ({}));
@@ -397,44 +454,95 @@ function initTaoAnhPage() {
                     return;
                 }
 
-            const results = Array.isArray(data.results) ? data.results : [];
-            results.forEach(item => {
-                const formId = item.form_id;
-                const url = item.url;
-                const error = item.error;
-                if (!formId) return;
+                const taskMappings = Array.isArray(data.tasks) ? data.tasks : [];
+                _createImagesPending = {};
+                taskMappings.forEach(m => {
+                    if (!m || !m.form_id || !m.task_id) return;
+                    _createImagesPending[m.task_id] = m.form_id;
+                });
 
-                const formEl = forms.find(f => (f.dataset.formId || '') === formId);
-                if (!formEl) return;
+                const _pollOnce = async () => {
+                    if (!_createImagesRunning || !_createImagesPending) return;
+                    const pendingTaskIds = Object.keys(_createImagesPending);
+                    if (pendingTaskIds.length === 0) {
+                        if (_createImagesPollingTimer) {
+                            try { clearInterval(_createImagesPollingTimer); } catch (e) {}
+                            _createImagesPollingTimer = null;
+                        }
+                        _createImagesPending = null;
+                        _createImagesRunning = false;
+                        generateAllBtn.textContent = 'Tạo Tất Cả';
+                        return;
+                    }
 
-                const resultBox = formEl.querySelector(`[id$="-display-result"]`);
-                if (!resultBox) return;
+                    await Promise.all(pendingTaskIds.map(async (taskId) => {
+                        const formId = _createImagesPending ? _createImagesPending[taskId] : null;
+                        if (!formId) return;
+                        try {
+                            const r = await fetch(`/task_image?task_id=${encodeURIComponent(taskId)}`);
+                            const d = await r.json().catch(() => ({}));
+                            if (!d || d.ok !== true) return;
 
-                resultBox.innerHTML = '';
-                if (url) {
-                    const img = document.createElement('img');
-                    img.src = url;
-                    img.alt = 'result';
-                    img.style.maxWidth = '100%';
-                    img.style.maxHeight = '100%';
-                    resultBox.appendChild(img);
-                    
-                    // Thêm nút mở thư mục nếu là custom dir (tùy chọn)
-                    resultBox.title = "Click để xem ảnh";
-                    resultBox.onclick = () => window.open(url, '_blank');
-                } else {
-                    const note = document.createElement('div');
-                    note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
-                    note.textContent = error || 'Tạo ảnh thất bại';
-                    resultBox.appendChild(note);
+                            if (d.status === 'completed' && d.url) {
+                                const formEl = forms.find(f => (f.dataset.formId || '') === formId);
+                                if (!formEl) return;
+                                const resultBox = formEl.querySelector(`[id$="-display-result"]`);
+                                if (!resultBox) return;
+                                resultBox.innerHTML = '';
+                                const img = document.createElement('img');
+                                img.src = d.url;
+                                img.alt = 'result';
+                                img.style.maxWidth = '100%';
+                                img.style.maxHeight = '100%';
+                                resultBox.appendChild(img);
+                                delete _createImagesPending[taskId];
+                            } else if (d.status === 'failed') {
+                                const formEl = forms.find(f => (f.dataset.formId || '') === formId);
+                                if (!formEl) return;
+                                const resultBox = formEl.querySelector(`[id$="-display-result"]`);
+                                if (!resultBox) return;
+                                resultBox.innerHTML = '';
+                                const note = document.createElement('div');
+                                note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                                note.textContent = d.error || 'Tạo ảnh thất bại';
+                                resultBox.appendChild(note);
+                                delete _createImagesPending[taskId];
+                            } else if (d.status === 'cancelled') {
+                                const formEl = forms.find(f => (f.dataset.formId || '') === formId);
+                                if (!formEl) return;
+                                const resultBox = formEl.querySelector(`[id$="-display-result"]`);
+                                if (!resultBox) return;
+                                resultBox.innerHTML = '';
+                                const note = document.createElement('div');
+                                note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                                note.textContent = d.error || 'Đã hủy';
+                                resultBox.appendChild(note);
+                                delete _createImagesPending[taskId];
+                            }
+                        } catch (e) {
+                            // ignore transient polling errors
+                        }
+                    }));
+                };
+
+                await _pollOnce();
+                if (_createImagesRunning) {
+                    _createImagesPollingTimer = setInterval(_pollOnce, 1200);
                 }
-            });
             } catch (err) {
-                console.error('Lỗi gọi /create_images_batch:', err);
+                if (err && (err.name === 'AbortError' || String(err).toLowerCase().includes('abort'))) {
+                    return;
+                }
+                console.error('Lỗi gọi /create_images_batch_start:', err);
                 if (typeof window.showSuccessOverlay === 'function') {
                     window.showSuccessOverlay('Lỗi kết nối đến server');
                 } else {
                     alert('Lỗi kết nối đến server');
+                }
+            } finally {
+                _createImagesAbortController = null;
+                if (!_createImagesRunning) {
+                    generateAllBtn.textContent = 'Tạo Tất Cả';
                 }
             }
         };
@@ -443,3 +551,8 @@ function initTaoAnhPage() {
 
 window.PageInits = window.PageInits || {};
 window.PageInits['tao-anh'] = initTaoAnhPage;
+
+let _createImagesAbortController = null;
+let _createImagesPollingTimer = null;
+let _createImagesPending = null;
+let _createImagesRunning = false;

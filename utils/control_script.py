@@ -30,7 +30,7 @@ def _write_json_file(path: str, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def update_task_status(task_id, status, error=None, result_file=None):
+def update_task_status(task_id, status, error=None, result_file=None, **extra_fields):
     """
     Cập nhật trạng thái task trong config/tasks.json
     """
@@ -47,6 +47,11 @@ def update_task_status(task_id, status, error=None, result_file=None):
                     task["error"] = error
                 if result_file:
                     task["result_file"] = result_file
+                if extra_fields:
+                    for k, v in extra_fields.items():
+                        if not k:
+                            continue
+                        task[str(k)] = v
                 break
         
         _write_json_file(tasks_file, tasks)
@@ -76,6 +81,29 @@ def create_image_task(task_name, model):
     except Exception as e:
         print(f"Error creating task: {e}")
         
+    return task_id
+
+
+def create_video_task(task_name, model):
+    tasks_file = os.path.join(BASE_DIR, "config", "tasks.json")
+    task_id = str(uuid.uuid4())
+    task = {
+        "id": task_id,
+        "name": task_name,
+        "model": model,
+        "status": "processing",
+        "created_at": datetime.now().isoformat(),
+    }
+
+    try:
+        tasks = _read_json_file(tasks_file)
+        if not isinstance(tasks, list):
+            tasks = []
+        tasks.append(task)
+        _write_json_file(tasks_file, tasks)
+    except Exception as e:
+        print(f"Error creating task: {e}")
+
     return task_id
 def upload_temp_video_handler():
     """

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 
 UPLOAD_INPUT = """
 input.hidden[type='file'][name='files'],
@@ -14,6 +15,7 @@ textarea[placeholder*='tưởng tượng'],
 textarea[placeholder*='Nhập'],
 div.tiptap.ProseMirror[contenteditable='true'],
 div.ProseMirror[contenteditable='true'],
+p[data-placeholder="Type to imagine, @ to reference images"],
 p[data-placeholder*='imagine'],
 p[data-placeholder*='tưởng tượng']
 """
@@ -50,49 +52,47 @@ img[alt^="Thumbnail"]
 SELECTOR_RESULT_IMAGE = """
 img[src*="imagine-public"],
 img[src*="generated"],
-img[src^="blob:"],
-img[src^="data:image"]
+img[src^="http"],
+img[src^="https"]
 """
 
 SELECTOR_ASPECT_BUTTON = """
-button[aria-label="Aspect Ratio"]
+button[aria-label="Aspect Ratio"],
+button[aria-label="Tỷ lệ khung hình"],
+button[aria-haspopup="menu"]:has(span:text-matches("\\d+\\s*:\\s*\\d+", "i"))
+"""
+SELECTOR_IMAGE_MODE = """
+button[role="radio"]:has-text("Hình ảnh"),
+button[role="radio"]:has-text("Image")
 """
 
+SELECTOR_IMAGE_ATTACHMENTS = """
+button[aria-label="Remove"],
+button[aria-label="Remove image"],
+button[aria-label="Xóa"],
+button[aria-label="Xoá"],
+button[aria-label="Đóng"],
+button[aria-label="Close"],
+button[aria-label="Delete"],
+button[aria-label="Delete image"]
+"""
 
-async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:16"):
+async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:16", cancel_event=None):
 
     page = await context.new_page()
 
     try:
 
+        if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
+            raise asyncio.CancelledError()
+
         # =====================
-        # ensure download behavior (avoid "Save As" dialog)
+        # ensure download folder
         # =====================
 
-        try:
-            download_dir = os.path.dirname(os.path.abspath(out_path))
-            if download_dir:
-                os.makedirs(download_dir, exist_ok=True)
-
-            cdp = await context.new_cdp_session(page)
-            try:
-                await cdp.send(
-                    "Page.setDownloadBehavior",
-                    {
-                        "behavior": "allow",
-                        "downloadPath": download_dir,
-                    },
-                )
-            except Exception:
-                await cdp.send(
-                    "Browser.setDownloadBehavior",
-                    {
-                        "behavior": "allow",
-                        "downloadPath": download_dir,
-                    },
-                )
-        except Exception:
-            pass
+        download_dir = os.path.dirname(os.path.abspath(out_path))
+        if download_dir:
+            os.makedirs(download_dir, exist_ok=True)
 
         # =====================
         # open imagine page
@@ -100,41 +100,124 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
 
         await page.goto("https://grok.com/imagine", timeout=60000)
 
+        if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
+            raise asyncio.CancelledError()
+
         # =====================
-        # set aspect ratio
+        # set aspect ratio (smart + retry)
         # =====================
 
         try:
 
-            ratio_btn = page.locator(SELECTOR_ASPECT_BUTTON).first
-            await ratio_btn.wait_for(timeout=10000)
+            ratio_btn = page.locator(SELECTOR_ASPECT_BUTTON).filter(
+                has=page.locator("svg")
+            ).first
 
-            await ratio_btn.click()
+            await ratio_btn.wait_for(state="visible", timeout=15000)
 
-            await page.wait_for_timeout(500)
+            ratio_clean = str(ratio or "").strip()
 
-            ratio_option = page.locator(f'role=menuitem >> text="{ratio}"').first
+            if ratio_clean:
 
-            await ratio_option.wait_for(timeout=10000)
-            await ratio_option.click()
+                # =====================
+                # get current ratio
+                # =====================
+                current_ratio = ""
 
-            await page.wait_for_timeout(500)
+                try:
+                    current_ratio = (await ratio_btn.locator("span").inner_text()).strip()
+                except:
+                    pass
 
-        except:
-            print("Aspect ratio menu not found or already set")
+                # =====================
+                # skip nếu đã đúng
+                # =====================
+                if current_ratio == ratio_clean:
+                    print(f"[SKIP] Ratio already = {current_ratio}")
+
+                else:
+
+                    for attempt in range(2):  # retry tối đa 2 lần
+
+                        await ratio_btn.click()
+                        await page.wait_for_timeout(300)
+
+                        ratio_option = page.locator(
+                            f'div[role="menuitem"]:has(span:text-matches("^\\\\s*{re.escape(ratio_clean)}\\\\s*$", "i"))'
+                        ).first
+
+                        await ratio_option.wait_for(state="visible", timeout=10000)
+                        await ratio_option.scroll_into_view_if_needed()
+                        await ratio_option.click(force=True)
+
+                        await page.wait_for_timeout(500)
+
+                        # verify lại
+                        try:
+                            new_ratio = (await ratio_btn.locator("span").inner_text()).strip()
+                        except:
+                            new_ratio = ""
+
+                        if new_ratio == ratio_clean:
+                            print(f"[OK] Ratio set = {new_ratio}")
+                            break
+                        else:
+                            print(f"[RETRY] Ratio not applied ({new_ratio})")
+
+        except Exception as e:
+            print("[WARN] Set ratio failed:", e)
+        # =====================
+        # select IMAGE mode (before upload)
+        # =====================
+
+        try:
+
+            image_mode_btn = page.locator(SELECTOR_IMAGE_MODE).first
+
+            await image_mode_btn.wait_for(state="visible", timeout=10000)
+
+            # chỉ click nếu chưa được chọn
+            aria_checked = await image_mode_btn.get_attribute("aria-checked")
+
+            if aria_checked != "true":
+                await image_mode_btn.click()
+
+            await asyncio.sleep(0.5)
+
+        except Exception:
+            pass
 
         # =====================
         # upload images
         # =====================
 
+        async def _wait_attachments_count_at_least(n: int, timeout_ms: int = 60000):
+            n = int(n)
+            loc = page.locator(SELECTOR_IMAGE_ATTACHMENTS)
+            deadline = asyncio.get_event_loop().time() + (float(timeout_ms) / 1000.0)
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    c = await loc.count()
+                except Exception:
+                    c = 0
+                if c >= n:
+                    return True
+                await asyncio.sleep(0.5)
+            return False
+
         upload = page.locator(UPLOAD_INPUT).first
         await upload.wait_for(state="attached", timeout=30000)
 
-        await upload.set_input_files([image1, image2])
+        await upload.set_input_files([image1])
+        await _wait_attachments_count_at_least(1, timeout_ms=60000)
+        await asyncio.sleep(1)
 
-        await asyncio.sleep(2)
+        await upload.set_input_files([image2])
+        await _wait_attachments_count_at_least(2, timeout_ms=60000)
+        await asyncio.sleep(1)
 
-        
+        if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
+            raise asyncio.CancelledError()
 
         # =====================
         # wait prompt editor
@@ -143,13 +226,33 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
         editor = page.locator(PROMPT_EDITOR).first
         await editor.wait_for(timeout=60000)
 
+        await asyncio.sleep(1)
         await editor.click()
+        await asyncio.sleep(0.5)
         await editor.fill(prompt)
+
+        # Snapshot existing thumbnails to avoid picking stale results when multiple tabs are running
+        before_srcs = set()
+        try:
+            thumbs0 = page.locator(SELECTOR_THUMBNAILS)
+            c0 = await thumbs0.count()
+            for i in range(min(int(c0), 12)):
+                try:
+                    s = await thumbs0.nth(i).get_attribute("src")
+                    if s:
+                        before_srcs.add(str(s))
+                except Exception:
+                    pass
+        except Exception:
+            before_srcs = set()
+
+        if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
+            raise asyncio.CancelledError()
 
         # =====================
         # click CREATE
         # =====================
-
+        await asyncio.sleep(1)
         send_btn = page.locator(SELECTOR_SUBMIT_SEND)
 
         if await send_btn.count() > 0:
@@ -157,26 +260,17 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
         else:
             create_btn = page.locator(SELECTOR_CREATE_BUTTON)
             await create_btn.first.click()
-            
-        await page.wait_for_timeout(2000)
+
+        await page.wait_for_timeout(1000)
 
         # =====================
-        # click FIRST thumbnail
-        # =====================
-
-        thumbs = page.locator(SELECTOR_THUMBNAILS)
-
-        await thumbs.first.wait_for(state="visible", timeout=30000)
-        await thumbs.first.click()
-
-        await page.wait_for_timeout(1500)
-        # =====================
-        # wait overlay
+        # wait overlay disappear
         # =====================
 
         overlay = page.locator(SELECTOR_CREATING_OVERLAY)
 
         try:
+
             await overlay.first.wait_for(state="visible", timeout=20000)
 
             await page.wait_for_selector(
@@ -184,53 +278,104 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
                 state="hidden",
                 timeout=180000
             )
+
         except:
             pass
 
-
-        
-
-        # =====================
-        # wait big image
-        # =====================
-
-        img = page.locator(SELECTOR_RESULT_IMAGE).last
-        await img.wait_for(state="visible", timeout=30000)
-
-        await img.hover()
-
-        await page.wait_for_timeout(800)
+        await asyncio.sleep(1)
 
         # =====================
-        # JS click DOWNLOAD
+        # wait overlay disappear
         # =====================
 
-        async with page.expect_download() as download_info:
+        overlay = page.locator(SELECTOR_CREATING_OVERLAY)
 
-            await page.evaluate("""
-                () => {
+        try:
 
-                    const buttons = [...document.querySelectorAll("button")];
+            await overlay.first.wait_for(state="visible", timeout=20000)
 
-                    const btn = buttons.find(b => {
-                        const label = b.getAttribute("aria-label") || "";
-                        return label.includes("Download") || label.includes("Tải");
-                    });
+            await page.wait_for_selector(
+                SELECTOR_CREATING_OVERLAY,
+                state="hidden",
+                timeout=180000
+            )
 
-                    if(!btn){
-                        throw new Error("Download button not found");
-                    }
+        except:
+            pass
 
-                    btn.click();
+        # =====================
+        # WAIT GENERATED THUMB URL
+        # =====================
 
-                }
-            """)
+        thumb_url = None
 
-        download = await download_info.value
+        for _ in range(150):
+            if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
+                raise asyncio.CancelledError()
 
-        await download.save_as(out_path)
+            thumbs = page.locator(SELECTOR_THUMBNAILS)
+            c = 0
+            try:
+                c = await thumbs.count()
+            except Exception:
+                c = 0
 
-        return out_path
+            if c > 0:
+                # Prefer a new generated thumb that wasn't present before submit
+                for i in range(min(int(c), 12)):
+                    try:
+                        src = await thumbs.nth(i).get_attribute("src")
+                        if not src:
+                            continue
+                        src = str(src)
+                        if "/generated/" in src and src not in before_srcs:
+                            thumb_url = src
+                            break
+                    except Exception:
+                        pass
+
+                if thumb_url:
+                    break
+
+                # Fallback: if everything is already in before_srcs (rare), accept first generated
+                try:
+                    src0 = await thumbs.first.get_attribute("src")
+                    if src0 and "/generated/" in str(src0):
+                        thumb_url = str(src0)
+                        break
+                except Exception:
+                    pass
+
+            await asyncio.sleep(0.5)
+
+        if not thumb_url:
+            raise RuntimeError("Cannot find generated thumbnail url")
+
+        # =====================
+        # DOWNLOAD IMAGE BY URL (logic giống Grok.cs)
+        # =====================
+
+        resp = await page.goto(thumb_url, timeout=120000)
+
+        if resp is None:
+            raise RuntimeError("Image response is null")
+
+        body = await resp.body()
+
+        if not body or len(body) < 10000:
+            raise RuntimeError("Image body too small")
+
+        with open(out_path, "wb") as f:
+            f.write(body)
+
+        for _ in range(10):
+
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 20000:
+                return out_path
+
+            await asyncio.sleep(0.5)
+
+        raise RuntimeError("Image file not stable")
 
     finally:
 

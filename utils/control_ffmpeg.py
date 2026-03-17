@@ -4,12 +4,291 @@ import os
 import subprocess
 import tempfile
 import uuid
+from typing import List
 
 from flask import jsonify, request, send_from_directory
 
 
 TRANSCODE_DIR = os.path.join(tempfile.gettempdir(), "web_creat_video_transcoded")
 os.makedirs(TRANSCODE_DIR, exist_ok=True)
+
+
+def _ffprobe_duration(path: str) -> float:
+    cmd = [
+        "ffprobe",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        path,
+    ]
+    out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode("utf-8", errors="ignore").strip()
+    try:
+        return float(out)
+    except Exception:
+        return 0.0
+
+
+def _ffprobe_has_audio(path: str) -> bool:
+    try:
+        cmd = [
+            "ffprobe",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            path,
+        ]
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode("utf-8", errors="ignore").strip()
+        return bool(out)
+    except Exception:
+        return False
+
+
+def apply_background_music(
+    video_path: str,
+    music_path: str,
+    out_path: str,
+    music_volume: float = 0.6,
+) -> str:
+    if not video_path or not os.path.exists(video_path):
+        raise ValueError("video_path not found")
+    if not music_path or not os.path.exists(music_path):
+        raise ValueError("music_path not found")
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    has_audio = _ffprobe_has_audio(video_path)
+
+    if has_audio:
+        filter_complex = (
+            f"[0:a]volume=1[a0];"
+            f"[1:a]volume={music_volume}[a1];"
+            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            music_path,
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "0:v",
+            "-map",
+            "[aout]",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            out_path,
+        ]
+    else:
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            video_path,
+            "-stream_loop",
+            "-1",
+            "-i",
+            music_path,
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            out_path,
+        ]
+
+    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return out_path
+
+
+def _effect_to_xfade_transition(effect_key: str) -> str:
+    k = str(effect_key or "").strip().lower()
+    mapping = {
+        "fade": "fade",
+        "fadeblack": "fadeblack",
+        "fadewhite": "fadewhite",
+        "dissolve": "dissolve",
+        "slideleft": "slideleft",
+        "slideright": "slideright",
+        "slideup": "slideup",
+        "slidedown": "slidedown",
+        "wipeleft": "wipeleft",
+        "wiperight": "wiperight",
+        "wipeup": "wipeup",
+        "wipedown": "wipedown",
+        "circleopen": "circleopen",
+        "circleclose": "circleclose",
+        "circlecrop": "circlecrop",
+        "rectcrop": "rectcrop",
+        "distance": "distance",
+        "diagbl": "diagbl",
+        "diagbr": "diagbr",
+        "diagtl": "diagtl",
+        "diagtr": "diagtr",
+        "hlslice": "hlslice",
+        "hrslice": "hrslice",
+        "vuslice": "vuslice",
+        "vdslice": "vdslice",
+        "smoothleft": "smoothleft",
+        "smoothright": "smoothright",
+        "smoothup": "smoothup",
+        "smoothdown": "smoothdown",
+        "pixelize": "pixelize",
+        "radial": "radial",
+        "fadegrays": "fadegrays",
+        "fadefast": "fade",
+        "fadeslow": "fade",
+    }
+    return mapping.get(k, "")
+
+
+def merge_video_clips(
+    clips: List[str],
+    out_path: str,
+    effect_key: str = "",
+    transition_duration: float = 0.5,
+) -> str:
+    clips = [c for c in (clips or []) if c]
+    if len(clips) == 0:
+        raise ValueError("No clips")
+    if len(clips) == 1:
+        # just copy
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", clips[0], "-c", "copy", out_path]
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return out_path
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    transition = _effect_to_xfade_transition(effect_key)
+
+    # If no transition requested/known => concat demuxer
+    if not transition:
+        list_file = os.path.join(TRANSCODE_DIR, f"concat_{uuid.uuid4().hex}.txt")
+        try:
+            with open(list_file, "w", encoding="utf-8") as f:
+                for p in clips:
+                    safe_p = str(p).replace("'", "'\\''")
+                    f.write("file '" + safe_p + "'\n")
+            cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                list_file,
+                "-c",
+                "copy",
+                out_path,
+            ]
+            subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return out_path
+        finally:
+            try:
+                if os.path.exists(list_file):
+                    os.remove(list_file)
+            except OSError:
+                pass
+
+    # xfade chain
+    durations = [_ffprobe_duration(p) for p in clips]
+    # fallback if probe fails
+    if any(d <= 0 for d in durations):
+        transition = ""
+        return merge_video_clips(clips, out_path, effect_key="", transition_duration=transition_duration)
+
+    inputs = []
+    for p in clips:
+        inputs += ["-i", p]
+
+    filter_lines = []
+    # video chain
+    filter_lines.append(f"[0:v]setpts=PTS-STARTPTS[v0]")
+    offset = max(0.0, durations[0] - transition_duration)
+    for i in range(1, len(clips)):
+        filter_lines.append(f"[{i}:v]setpts=PTS-STARTPTS[v{i}]")
+        prev = f"vx{i-1}" if i > 1 else "v0"
+        out = f"vx{i}"
+        filter_lines.append(
+            f"[{prev}][v{i}]xfade=transition={transition}:duration={transition_duration}:offset={offset}[{out}]"
+        )
+        offset += max(0.0, durations[i] - transition_duration)
+
+    v_last = f"vx{len(clips)-1}" if len(clips) > 1 else "v0"
+
+    # audio: simple concat (no crossfade)
+    a_inputs = "".join([f"[{i}:a]" for i in range(len(clips))])
+    filter_lines.append(f"{a_inputs}concat=n={len(clips)}:v=0:a=1[aout]")
+
+    filter_complex = ";".join(filter_lines)
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        *inputs,
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        f"[{v_last}]",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        out_path,
+    ]
+
+    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return out_path
 
 
 def serve_transcoded_handler(filename: str):

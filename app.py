@@ -1,10 +1,13 @@
 from flask import Flask, jsonify, send_from_directory, request
+
 import asyncio
 import base64
 import uuid
 import os
 import sys
 import subprocess
+import threading
+from typing import Dict, Any
 
 from utils.control_music import (
     list_music_handler,
@@ -18,6 +21,7 @@ from utils.control_ffmpeg import (
     serve_transcoded_handler,
     transcode_video_handler,
     extract_frame_handler,
+    apply_background_music,
 )
 
 from utils.control_script import (
@@ -38,7 +42,65 @@ MUSIC_DIR = os.path.join(BASE_DIR, "config", "Music")
 THEME_IMG_DIR = os.path.join(BASE_DIR, "templaces", "img")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
-app = Flask(__name__, static_folder=".", static_url_path="")
+app = Flask(__name__, static_folder=".", static_url_path="/static")
+
+
+_CREATE_IMAGES_CANCEL = threading.Event()
+_CREATE_IMAGES_CANCEL_LOCK = threading.Lock()
+
+_ASYNC_IMAGE_BATCHES_LOCK = threading.Lock()
+_ASYNC_IMAGE_BATCHES: Dict[str, Any] = {}
+
+_CREATE_VIDEOS_CANCEL = threading.Event()
+_CREATE_VIDEOS_CANCEL_LOCK = threading.Lock()
+
+_ASYNC_VIDEO_BATCHES_LOCK = threading.Lock()
+_ASYNC_VIDEO_BATCHES: Dict[str, Any] = {}
+
+_ASYNC_SINGLE_VIDEO_TASKS_LOCK = threading.Lock()
+_ASYNC_SINGLE_VIDEO_TASKS: Dict[str, Any] = {}
+
+
+def _mark_tasks_cancelled_best_effort(task_ids=None):
+    try:
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return
+
+        with open(tasks_file, 'r', encoding='utf-8') as f:
+            raw = f.read()
+        try:
+            import json
+            tasks_data = json.loads(raw) if raw else []
+        except Exception:
+            tasks_data = []
+
+        if not isinstance(tasks_data, list):
+            return
+
+        wanted = None
+        if isinstance(task_ids, (list, tuple, set)):
+            wanted = {str(x) for x in task_ids if str(x)}
+
+        changed = False
+        for t in tasks_data:
+            try:
+                tid = str(t.get('id') or '')
+                if wanted is not None and tid not in wanted:
+                    continue
+                st = str(t.get('status') or '').lower()
+                if st in ('processing', 'pending'):
+                    t['status'] = 'cancelled'
+                    t['error'] = 'Đã hủy'
+                    changed = True
+            except Exception:
+                pass
+
+        if changed:
+            with open(tasks_file, 'w', encoding='utf-8') as f:
+                json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def _safe_folder_name(name: str) -> str:
@@ -54,6 +116,19 @@ def _safe_folder_name(name: str) -> str:
             allowed.append('-')
     out = ''.join(allowed).strip('-')
     return out or 'default'
+
+
+def _music_url_to_abs_path(music_url: str) -> str:
+    u = str(music_url or '').strip()
+    if not u:
+        return ''
+    if u.startswith('/music/'):
+        name = u[len('/music/'):]
+        if not name or '/' in name or '\\' in name:
+            return ''
+        p = os.path.join(MUSIC_DIR, name)
+        return p if os.path.isfile(p) else ''
+    return ''
 
 
 def _write_data_url_to_file(data_url: str, out_path: str) -> None:
@@ -73,6 +148,16 @@ def _write_data_url_to_file(data_url: str, out_path: str) -> None:
 def index():
     # Phục vụ giao diện chính
     return send_from_directory("templaces/html", "index.html")
+
+
+@app.route('/templaces/<path:filename>')
+def serve_templates(filename: str):
+    return send_from_directory('templaces', filename)
+
+
+@app.route('/config/<path:filename>')
+def serve_config(filename: str):
+    return send_from_directory('config', filename)
 
 
 @app.route('/generated/<path:filename>')
@@ -114,12 +199,719 @@ def debug_browser():
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
+@app.route('/debug_routes', methods=['GET'])
+def debug_routes():
+    try:
+        items = []
+        for r in app.url_map.iter_rules():
+            try:
+                items.append({'rule': str(r.rule), 'methods': sorted([m for m in (r.methods or set()) if m])})
+            except Exception:
+                pass
+        items.sort(key=lambda x: x.get('rule', ''))
+        return jsonify({'ok': True, 'routes': items})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/task_video', methods=['GET'])
+def task_video():
+    try:
+        task_id = str(request.args.get('task_id') or '').strip()
+        if not task_id:
+            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
+
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
+
+        with open(tasks_file, 'r', encoding='utf-8') as f:
+            raw = f.read()
+
+        try:
+            import json
+            tasks_data = json.loads(raw) if raw else []
+        except Exception:
+            tasks_data = []
+
+        task = None
+        for t in tasks_data if isinstance(tasks_data, list) else []:
+            if str(t.get('id') or '') == task_id:
+                task = t
+                break
+
+        if not task:
+            return jsonify({'ok': False, 'error': 'Task not found'}), 404
+
+        status = str(task.get('status') or '')
+        out = {
+            'ok': True,
+            'status': status,
+            'error': task.get('error'),
+            'progress_percent': task.get('progress_percent'),
+            'scene_index': task.get('scene_index'),
+            'total_scenes': task.get('total_scenes'),
+            'phase': task.get('phase'),
+            'result_url': task.get('result_url'),
+        }
+
+        return jsonify(out)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/task_image', methods=['GET'])
+def task_image():
+    try:
+        task_id = str(request.args.get('task_id') or '').strip()
+        if not task_id:
+            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
+
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
+
+        with open(tasks_file, 'r', encoding='utf-8') as f:
+            tasks = f.read()
+        try:
+            import json
+            tasks_data = json.loads(tasks) if tasks else []
+        except Exception:
+            tasks_data = []
+
+        task = None
+        for t in tasks_data if isinstance(tasks_data, list) else []:
+            if str(t.get('id') or '') == task_id:
+                task = t
+                break
+
+        if not task:
+            return jsonify({'ok': False, 'error': 'Task not found'}), 404
+
+        status = str(task.get('status') or '')
+        if status != 'completed':
+            return jsonify({'ok': True, 'status': status, 'error': task.get('error')})
+
+        result_file = str(task.get('result_file') or '')
+        if not result_file or not os.path.exists(result_file):
+            return jsonify({'ok': True, 'status': status, 'error': 'Result file not found'})
+
+        try:
+            if os.path.getsize(result_file) <= 0:
+                return jsonify({'ok': True, 'status': 'failed', 'error': 'Result file is empty'})
+        except Exception as exc:
+            return jsonify({'ok': True, 'status': 'failed', 'error': str(exc)})
+
+        with open(result_file, 'rb') as f:
+            b64_data = base64.b64encode(f.read()).decode('utf-8')
+        return jsonify({'ok': True, 'status': status, 'url': f'data:image/png;base64,{b64_data}'})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/remerge_video', methods=['POST'])
+def remerge_video():
+    try:
+        payload = request.get_json(silent=True) or {}
+        task_id = str(payload.get('task_id') or '').strip()
+        effect_key = str(payload.get('effect_key') or '').strip()
+        music_url = str(payload.get('music_url') or '').strip()
+        music_name = str(payload.get('music_name') or '').strip()
+        music_path = _music_url_to_abs_path(music_url)
+
+        if not task_id:
+            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
+
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
+
+        try:
+            import json
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                raw = f.read()
+            tasks_data = json.loads(raw) if raw else []
+        except Exception:
+            tasks_data = []
+
+        task = None
+        for it in (tasks_data if isinstance(tasks_data, list) else []):
+            if str((it or {}).get('id') or '') == task_id:
+                task = it
+                break
+        if not task:
+            return jsonify({'ok': False, 'error': 'Task not found'}), 404
+
+        out_clips = task.get('out_clips')
+        merged_out = str(task.get('merged_out') or '').strip()
+        scenes_dir = str(task.get('scenes_dir') or '').strip()
+
+        def _newest_mp4_in_dir(d: str) -> str:
+            try:
+                if not d or not os.path.isdir(d):
+                    return ''
+                items = [os.path.join(d, fn) for fn in os.listdir(d) if fn and fn.lower().endswith('.mp4')]
+                if not items:
+                    return ''
+                items.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0.0, reverse=True)
+                return items[0]
+            except Exception:
+                return ''
+
+        resolved = []
+        for p in (out_clips if isinstance(out_clips, list) else []):
+            s = str(p or '').strip()
+            if not s:
+                continue
+            if os.path.isdir(s):
+                map_path = os.path.join(s, 'scene_map.json')
+                if os.path.exists(map_path):
+                    try:
+                        import json
+                        with open(map_path, 'r', encoding='utf-8') as f:
+                            mp = json.load(f) or {}
+                        keys = sorted([int(k) for k in mp.keys() if str(k).isdigit()])
+                        added = False
+                        for k in keys:
+                            fp = str(mp.get(str(k)) or '').strip()
+                            if fp and os.path.exists(fp):
+                                resolved.append(fp)
+                                added = True
+                        if added:
+                            continue
+                    except Exception:
+                        pass
+
+                cand = _newest_mp4_in_dir(s)
+                if cand:
+                    resolved.append(cand)
+                continue
+
+            if os.path.exists(s):
+                resolved.append(s)
+
+        if not resolved and scenes_dir and os.path.isdir(scenes_dir):
+            cand = _newest_mp4_in_dir(scenes_dir)
+            if cand:
+                resolved.append(cand)
+
+        if not resolved:
+            return jsonify({'ok': False, 'error': 'Không tìm thấy clip để ghép lại'}), 400
+
+        if not merged_out:
+            base_dir = os.path.dirname(os.path.abspath(resolved[0]))
+            merged_out = os.path.join(base_dir, f'remerge_{task_id.replace("-", "")[:8]}.mp4')
+
+        from utils.control_ffmpeg import merge_video_clips, TRANSCODE_DIR, apply_background_music
+        from utils.control_script import update_task_status
+
+        update_task_status(task_id, 'processing', phase='merging', effect_key=effect_key, music_url=music_url, music_name=music_name)
+
+        merged_path = merge_video_clips(resolved, merged_out, effect_key=effect_key)
+
+        if music_path and os.path.exists(music_path):
+            try:
+                tmp_music_out = os.path.join(TRANSCODE_DIR, f"music_{task_id.replace('-', '')[:12]}_{os.path.basename(merged_out)}")
+                applied = apply_background_music(merged_path, music_path, tmp_music_out)
+                import shutil
+                shutil.copy2(applied, merged_out)
+                merged_path = merged_out
+                try:
+                    if os.path.exists(tmp_music_out):
+                        os.remove(tmp_music_out)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        out_name = os.path.basename(merged_path)
+        trans_name = f"{task_id.replace('-', '')[:12]}__{out_name}"
+        trans_path = os.path.join(TRANSCODE_DIR, trans_name)
+        try:
+            if os.path.abspath(os.path.dirname(merged_path)) != os.path.abspath(TRANSCODE_DIR):
+                import shutil
+                shutil.copy2(merged_path, trans_path)
+            else:
+                trans_name = os.path.basename(merged_path)
+        except Exception:
+            trans_name = os.path.basename(merged_path)
+
+        result_url = f"/transcoded/{trans_name}"
+        update_task_status(
+            task_id,
+            'completed',
+            result_file=merged_path,
+            result_url=result_url,
+            effect_key=effect_key,
+            out_clips=list(out_clips) if isinstance(out_clips, list) else out_clips,
+            merged_out=str(merged_out),
+            scenes_dir=scenes_dir,
+        )
+
+        return jsonify({'ok': True, 'result_url': result_url})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/save_video_results', methods=['POST'])
+def save_video_results():
+    try:
+        payload = request.get_json(silent=True) or {}
+        task_ids = payload.get('task_ids')
+        if not isinstance(task_ids, list) or len(task_ids) == 0:
+            return jsonify({'ok': False, 'error': 'Missing task_ids'}), 400
+
+        task_ids = [str(x).strip() for x in task_ids if str(x).strip()]
+        if not task_ids:
+            return jsonify({'ok': False, 'error': 'Missing task_ids'}), 400
+
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
+
+        try:
+            import json
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                raw = f.read()
+            tasks_data = json.loads(raw) if raw else []
+        except Exception:
+            tasks_data = []
+
+        by_id = {}
+        for it in (tasks_data if isinstance(tasks_data, list) else []):
+            tid = str((it or {}).get('id') or '').strip()
+            if tid:
+                by_id[tid] = it
+
+        def _unique_path(dir_path: str, filename: str) -> str:
+            base, ext = os.path.splitext(filename)
+            cand = os.path.join(dir_path, filename)
+            if not os.path.exists(cand):
+                return cand
+            for i in range(1, 1000):
+                alt = os.path.join(dir_path, f"{base} ({i}){ext}")
+                if not os.path.exists(alt):
+                    return alt
+            return os.path.join(dir_path, f"{base}_{uuid.uuid4().hex[:6]}{ext}")
+
+        result_urls = {}
+        changed = False
+        batch_dirs_to_remove = set()
+
+        import shutil
+
+        for tid in task_ids:
+            t = by_id.get(tid)
+            if not t:
+                continue
+
+            # Keep transcoded URL for playback in UI
+            result_urls[tid] = str((t or {}).get('result_url') or '').strip()
+
+            merged_out = str((t or {}).get('merged_out') or '').strip()
+            result_file = str((t or {}).get('result_file') or '').strip()
+            scenes_dir = str((t or {}).get('scenes_dir') or '').strip()
+
+            src = ''
+            if result_file and os.path.exists(result_file):
+                src = result_file
+            elif merged_out and os.path.exists(merged_out):
+                src = merged_out
+
+            if not src:
+                continue
+
+            # Determine batch dir: parent of scenes_dir is video_batch_* folder
+            batch_dir = ''
+            out_root = ''
+            try:
+                if scenes_dir:
+                    batch_dir = os.path.dirname(os.path.abspath(scenes_dir))
+                    out_root = os.path.dirname(os.path.abspath(batch_dir))
+                else:
+                    # Fallback: infer from src path: ...\video_batch_xxx\<file>
+                    p = os.path.dirname(os.path.abspath(src))
+                    if os.path.basename(os.path.normpath(p)).startswith('video_batch_'):
+                        batch_dir = p
+                        out_root = os.path.dirname(os.path.abspath(batch_dir))
+            except Exception:
+                batch_dir = ''
+                out_root = ''
+
+            if out_root and os.path.isdir(out_root):
+                dst = _unique_path(out_root, os.path.basename(src))
+                try:
+                    shutil.move(src, dst)
+                except Exception:
+                    try:
+                        shutil.copy2(src, dst)
+                    except Exception:
+                        dst = ''
+
+                if dst:
+                    t['saved_file'] = dst
+                    changed = True
+
+            # Schedule deletion of temp batch folder
+            if batch_dir:
+                base = os.path.basename(os.path.normpath(batch_dir))
+                if base.startswith('video_batch_'):
+                    batch_dirs_to_remove.add(batch_dir)
+
+        # Remove temp batch folders
+        for d in sorted(batch_dirs_to_remove, key=lambda x: len(str(x)), reverse=True):
+            try:
+                if os.path.isdir(d):
+                    shutil.rmtree(d, ignore_errors=True)
+            except Exception:
+                pass
+
+        if changed:
+            try:
+                import json
+                with open(tasks_file, 'w', encoding='utf-8') as f:
+                    json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+        return jsonify({'ok': True, 'result_urls': result_urls})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/create_images_batch_start', methods=['POST'])
+def create_images_batch_start():
+    try:
+        with _CREATE_IMAGES_CANCEL_LOCK:
+            _CREATE_IMAGES_CANCEL.clear()
+
+        payload = request.get_json(silent=True) or {}
+        provider = str(payload.get('provider') or '').strip()
+        out_dir_label = str(payload.get('out_dir_label') or '')
+        # Normalize common issues from UI labels (quotes/hidden chars/newlines)
+        out_dir_label = out_dir_label.replace('\u200e', '').replace('\u200f', '').replace('\ufeff', '')
+        out_dir_label = out_dir_label.strip().strip('"').strip("'").strip()
+        try:
+            out_dir_label = os.path.normpath(out_dir_label)
+        except Exception:
+            out_dir_label = str(out_dir_label).strip()
+        max_tabs = payload.get('max_tabs', 5)
+        ratio = str(payload.get('ratio') or '9:16').strip()
+        tasks = payload.get('tasks')
+
+        if not isinstance(tasks, list) or len(tasks) == 0:
+            return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
+
+        if os.path.isabs(out_dir_label):
+            try:
+                os.makedirs(out_dir_label, exist_ok=True)
+            except Exception:
+                pass
+
+        if not (os.path.isabs(out_dir_label) and os.path.isdir(out_dir_label)):
+            return jsonify({'ok': False, 'error': 'Vui lòng chọn thư mục lưu kết quả'}), 400
+
+        out_folder_abs = out_dir_label
+
+        from utils.control_creat_image import run_tasks
+        from utils.control_profile import init_global_browser, get_global_browser
+        from utils.control_script import create_image_task
+
+        runner_tasks = []
+        mapping = []
+
+        for t in tasks:
+            form_id = str((t or {}).get('form_id') or '').strip()
+            img1 = str((t or {}).get('image1') or '')
+            img2 = str((t or {}).get('image2') or '')
+            prompt = str((t or {}).get('prompt') or '')
+
+            if not form_id:
+                continue
+
+            if not img1 or not img2 or not prompt:
+                continue
+
+            out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.png'
+            out_abs = os.path.join(out_folder_abs, out_name)
+
+            task_id = create_image_task(f'Tạo ảnh: {out_name}', provider)
+            mapping.append({'form_id': form_id, 'task_id': task_id})
+            runner_tasks.append({
+                'task_id': task_id,
+                'form_id': form_id,
+                'image1_data': img1,
+                'image2_data': img2,
+                'prompt': prompt,
+                'out': out_abs,
+                'ratio': ratio,
+            })
+
+        if len(runner_tasks) == 0:
+            return jsonify({'ok': False, 'error': 'No valid tasks'}), 400
+
+        init_global_browser(provider=provider, kind='image')
+        gb = get_global_browser('image')
+
+        async def _run_on_global_ctx_async():
+            ctx = await gb.get_context_async()
+            if ctx is None:
+                raise RuntimeError('Global browser context is not initialized')
+            await run_tasks(
+                context=ctx,
+                provider=provider,
+                tasks=runner_tasks,
+                max_tabs=max_tabs,
+                aspect_ratio=ratio,
+                cancel_event=_CREATE_IMAGES_CANCEL,
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_run_on_global_ctx_async(), gb._loop)
+        batch_key = uuid.uuid4().hex[:10]
+        with _ASYNC_IMAGE_BATCHES_LOCK:
+            _ASYNC_IMAGE_BATCHES[batch_key] = {
+                'provider': provider,
+                'future': future,
+                'mapping': mapping,
+            }
+
+        return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/create_videos_batch_start', methods=['POST'])
+def create_videos_batch_start():
+    try:
+        with _CREATE_VIDEOS_CANCEL_LOCK:
+            _CREATE_VIDEOS_CANCEL.clear()
+
+        payload = request.get_json(silent=True) or {}
+        provider = str(payload.get('provider') or '').strip()
+        out_dir_label = str(payload.get('out_dir_label') or '')
+        # Normalize common issues from UI labels (quotes/hidden chars/newlines)
+        out_dir_label = out_dir_label.replace('\u200e', '').replace('\u200f', '').replace('\ufeff', '')
+        out_dir_label = out_dir_label.strip().strip('"').strip("'").strip()
+        try:
+            out_dir_label = os.path.normpath(out_dir_label)
+        except Exception:
+            out_dir_label = str(out_dir_label).strip()
+        max_tabs = payload.get('max_tabs', 5)
+        ratio = str(payload.get('ratio') or '9:16').strip()
+        quality = str(payload.get('quality') or '1080p').strip()
+        music_url = str(payload.get('music_url') or '').strip()
+        music_name = str(payload.get('music_name') or '').strip()
+        music_path = _music_url_to_abs_path(music_url)
+        tasks = payload.get('tasks')
+
+        if not isinstance(tasks, list) or len(tasks) == 0:
+            return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
+
+        if os.path.isabs(out_dir_label):
+            try:
+                os.makedirs(out_dir_label, exist_ok=True)
+            except Exception:
+                pass
+        if not (os.path.isabs(out_dir_label) and os.path.isdir(out_dir_label)):
+            return jsonify({'ok': False, 'error': 'Vui lòng chọn thư mục lưu kết quả'}), 400
+
+        from utils.control_profile import init_global_browser, get_global_browser
+        from utils.control_script import create_video_task
+        from utils.control_creat_video import run_video_tasks
+
+        runner_tasks = []
+        mapping = []
+
+        batch_id = uuid.uuid4().hex[:8]
+        out_folder_abs = os.path.join(out_dir_label, f'video_batch_{batch_id}')
+        os.makedirs(out_folder_abs, exist_ok=True)
+
+        for t in tasks:
+            form_id = str((t or {}).get('form_id') or '').strip()
+            scenes = (t or {}).get('scenes')
+            effect_key = str((t or {}).get('effect_key') or '').strip()
+
+            if not form_id:
+                continue
+            if not isinstance(scenes, list) or len(scenes) == 0:
+                continue
+
+            out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.mp4'
+            merged_out = os.path.join(out_folder_abs, out_name)
+
+            clips_dir = os.path.join(out_folder_abs, f'{form_id}_scenes')
+            os.makedirs(clips_dir, exist_ok=True)
+            out_clips = [clips_dir for _ in range(len(scenes))]
+
+            task_id = create_video_task(f'Tạo video: {out_name}', provider)
+            mapping.append({'form_id': form_id, 'task_id': task_id})
+            runner_tasks.append({
+                'task_id': task_id,
+                'form_id': form_id,
+                'scenes': scenes,
+                'out_clips': out_clips,
+                'merged_out': merged_out,
+                'effect_key': effect_key,
+                'ratio': ratio,
+                'quality': quality,
+                'music_url': music_url,
+                'music_name': music_name,
+                'music_path': music_path,
+            })
+
+        if len(runner_tasks) == 0:
+            return jsonify({'ok': False, 'error': 'No valid tasks'}), 400
+
+        init_global_browser(provider=provider, kind='video')
+        gb = get_global_browser('video')
+
+        async def _run_on_global_ctx_async():
+            ctx = await gb.get_context_async()
+            if ctx is None:
+                raise RuntimeError('Global browser context is not initialized')
+            await run_video_tasks(
+                context=ctx,
+                provider=provider,
+                tasks=runner_tasks,
+                max_tabs=max_tabs,
+                cancel_event=_CREATE_VIDEOS_CANCEL,
+            )
+
+        future = asyncio.run_coroutine_threadsafe(_run_on_global_ctx_async(), gb._loop)
+        batch_key = uuid.uuid4().hex[:10]
+        with _ASYNC_VIDEO_BATCHES_LOCK:
+            _ASYNC_VIDEO_BATCHES[batch_key] = {
+                'provider': provider,
+                'future': future,
+                'mapping': mapping,
+                'out_folder_abs': out_folder_abs,
+            }
+
+        return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/cancel_create_videos_batch', methods=['POST'])
+def cancel_create_videos_batch():
+    try:
+        with _CREATE_VIDEOS_CANCEL_LOCK:
+            _CREATE_VIDEOS_CANCEL.set()
+
+        task_ids = []
+        batch_folders = []
+        try:
+            with _ASYNC_VIDEO_BATCHES_LOCK:
+                for b in (_ASYNC_VIDEO_BATCHES or {}).values():
+                    for m in (b or {}).get('mapping') or []:
+                        if m and m.get('task_id'):
+                            task_ids.append(str(m.get('task_id')))
+                    of = (b or {}).get('out_folder_abs')
+                    if of:
+                        batch_folders.append(str(of))
+        except Exception:
+            task_ids = []
+            batch_folders = []
+
+        # Fallback: infer batch folder from tasks.json scenes_dir (works even if server lost _ASYNC_VIDEO_BATCHES)
+        try:
+            if task_ids:
+                tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                if os.path.exists(tasks_file):
+                    import json
+                    with open(tasks_file, 'r', encoding='utf-8') as f:
+                        raw = f.read()
+                    try:
+                        tasks_data = json.loads(raw) if raw else []
+                    except Exception:
+                        tasks_data = []
+                    wanted = {str(x) for x in task_ids if str(x).strip()}
+                    for it in (tasks_data or []):
+                        tid = str((it or {}).get('id') or '')
+                        if tid not in wanted:
+                            continue
+                        scenes_dir = str((it or {}).get('scenes_dir') or '').strip()
+                        if not scenes_dir:
+                            continue
+                        try:
+                            # scenes_dir usually like ...\video_batch_xxx\<form>_scenes
+                            parent = os.path.dirname(os.path.abspath(scenes_dir))
+                            base = os.path.basename(os.path.normpath(parent))
+                            if base.startswith('video_batch_'):
+                                batch_folders.append(parent)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        _mark_tasks_cancelled_best_effort(task_ids if task_ids else None)
+
+        # Best-effort: clear stored async batches so UI doesn't keep polling stale jobs
+        try:
+            with _ASYNC_VIDEO_BATCHES_LOCK:
+                _ASYNC_VIDEO_BATCHES.clear()
+        except Exception:
+            pass
+
+        # Cleanup temp scenes folders for cancelled tasks
+        try:
+            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            if os.path.exists(tasks_file) and task_ids:
+                import json
+                with open(tasks_file, 'r', encoding='utf-8') as f:
+                    raw = f.read()
+                try:
+                    tasks_data = json.loads(raw) if raw else []
+                except Exception:
+                    tasks_data = []
+                wanted = {str(x) for x in task_ids if str(x).strip()}
+                for it in (tasks_data or []):
+                    tid = str((it or {}).get('id') or '')
+                    if tid not in wanted:
+                        continue
+                    scenes_dir = str((it or {}).get('scenes_dir') or '').strip()
+                    if scenes_dir and os.path.isdir(scenes_dir):
+                        import shutil
+                        shutil.rmtree(scenes_dir, ignore_errors=True)
+                        it['scenes_dir'] = ''
+                with open(tasks_file, 'w', encoding='utf-8') as f:
+                    json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        # Cleanup batch output folders created by the last Start (video_batch_xxx)
+        try:
+            import shutil
+            for folder in (batch_folders or []):
+                p = str(folder or '').strip()
+                if not p:
+                    continue
+                # Safety: only remove folders that look like our batch folders
+                base = os.path.basename(os.path.normpath(p))
+                if not base.startswith('video_batch_'):
+                    continue
+                if os.path.isdir(p):
+                    shutil.rmtree(p, ignore_errors=True)
+        except Exception:
+            pass
+
+        # Close browser immediately when stopping video batch
+        try:
+            from utils.control_profile import close_global_browser
+            close_global_browser(kind='video')
+        except Exception:
+            pass
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
 @app.route('/reset_browser_profile', methods=['POST'])
 def reset_browser_profile():
     try:
-        from utils.control_profile import _GLOBAL_BROWSER
-        # Chỉ đóng trình duyệt và khởi động lại context, không xóa file vật lý
-        _GLOBAL_BROWSER.run(_GLOBAL_BROWSER.reset_async(), timeout=60)
+        from utils.control_profile import reset_global_browser
+        reset_global_browser(kind='default')
         return jsonify({'ok': True, 'message': 'Trình duyệt đã được khởi động lại (Dữ liệu profile vẫn giữ nguyên).'})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
@@ -131,7 +923,7 @@ def open_grok_login():
         from utils.control_profile import _GLOBAL_BROWSER, init_global_browser, run_global
 
         async def _open():
-            init_global_browser()
+            init_global_browser(kind='default')
             ctx = await _GLOBAL_BROWSER.get_context_async()
             if ctx is None:
                 raise RuntimeError('Global browser context is not initialized')
@@ -377,6 +1169,9 @@ def setup_profile():
 @app.route('/create_images_batch', methods=['POST'])
 def create_images_batch():
     try:
+        with _CREATE_IMAGES_CANCEL_LOCK:
+            _CREATE_IMAGES_CANCEL.clear()
+
         payload = request.get_json(silent=True) or {}
         provider = str(payload.get('provider') or '').strip()
         out_dir_label = str(payload.get('out_dir_label') or '').strip()
@@ -437,18 +1232,27 @@ def create_images_batch():
             return jsonify({'ok': True, 'results': results})
 
         from utils.control_creat_image import run_tasks
-        from utils.control_profile import init_global_browser, run_global
+        from utils.control_profile import init_global_browser, run_global, get_global_browser
 
         async def _run_on_global_ctx():
-            from utils.control_profile import _GLOBAL_BROWSER
-            init_global_browser(provider=provider)
-            ctx = await _GLOBAL_BROWSER.get_context_async()
+            init_global_browser(provider=provider, kind='image')
+            gb = get_global_browser('image')
+            ctx = await gb.get_context_async()
             if ctx is None:
                 raise RuntimeError('Global browser context is not initialized')
-            await run_tasks(context=ctx, provider=provider, tasks=runner_tasks, max_tabs=max_tabs, aspect_ratio=ratio)
+            await run_tasks(
+                context=ctx,
+                provider=provider,
+                tasks=runner_tasks,
+                max_tabs=max_tabs,
+                aspect_ratio=ratio,
+                cancel_event=_CREATE_IMAGES_CANCEL,
+            )
 
         try:
-            run_global(_run_on_global_ctx(), timeout=3600, provider=provider)
+            run_global(_run_on_global_ctx(), timeout=3600, provider=provider, kind='image')
+        except asyncio.CancelledError:
+            return jsonify({'ok': False, 'error': 'Cancelled'}), 200
         except Exception as exc:
             return jsonify({'ok': False, 'error': str(exc)}), 500
 
@@ -457,13 +1261,17 @@ def create_images_batch():
             form_id = t.get('form_id')
             out_abs = t.get('out')
             if os.path.exists(out_abs):
-                if t['is_custom_dir']:
-                    # Nếu là thư mục ngoài, trả về file:// hoặc data url để hiển thị (tạm thời trả về data url cho an toàn hiển thị)
-                    with open(out_abs, "rb") as f:
-                        b64_data = base64.b64encode(f.read()).decode('utf-8')
-                        url = f"data:image/png;base64,{b64_data}"
-                else:
-                    url = f"/generated/{t['out_folder_rel']}/{t['out_name']}"
+                try:
+                    if os.path.getsize(out_abs) <= 0:
+                        results.append({'form_id': form_id, 'url': None, 'error': 'Ảnh tải về bị rỗng'})
+                        continue
+                except Exception:
+                    results.append({'form_id': form_id, 'url': None, 'error': 'Ảnh tải về bị rỗng'})
+                    continue
+
+                with open(out_abs, "rb") as f:
+                    b64_data = base64.b64encode(f.read()).decode('utf-8')
+                    url = f"data:image/png;base64,{b64_data}"
                 results.append({'form_id': form_id, 'url': url, 'error': None})
             else:
                 results.append({'form_id': form_id, 'url': None, 'error': 'Không tạo được ảnh'})
@@ -473,8 +1281,12 @@ def create_images_batch():
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
+import webbrowser
+import threading
+
+def open_browser():
+    webbrowser.open("http://127.0.0.1:5000")
 
 if __name__ == "__main__":
-    # Chạy local: python app.py
-    app.run(host="127.0.0.1", port=5000, debug=True)
-
+    threading.Timer(1.0, open_browser).start()
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)

@@ -28,10 +28,12 @@ function renderTaskTable(tasks) {
         let statusText = 'Đang xử lý';
         if (status === 'completed') statusText = 'Hoàn thành';
         if (status === 'failed') statusText = 'Thất bại';
+        if (status === 'cancelled') statusText = 'Đã hủy';
 
         let statusClass = 'status-processing';
         if (status === 'completed') statusClass = 'status-completed';
         if (status === 'failed') statusClass = 'status-failed';
+        if (status === 'cancelled') statusClass = 'status-failed';
 
         tr.innerHTML = `
             <td>${String(idx + 1).padStart(2, '0')}</td>

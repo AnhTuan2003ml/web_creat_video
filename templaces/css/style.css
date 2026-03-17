@@ -1,5 +1,5 @@
 :root {
-    /* DEFAULT (SẮC SỠ, NEON) */
+    /* DEFAULT (Sáº®C Sá» , NEON) */
     --bg-dark: radial-gradient(circle at top left, #0f172a, #020617 55%);
     --sidebar-bg: #050816;
     --card-bg: #0b1020;
@@ -24,7 +24,7 @@ body.theme-hacker {
     --gradient-btn: linear-gradient(135deg, #00ff41, #0aff9d);
 }
 
-/* THEME TECH (CÔNG NGHỆ) */
+/* THEME TECH (CÃ”NG NGHá»†) */
 body.theme-tech {
     --bg-dark: radial-gradient(circle at top, #020617, #000000 60%);
     --sidebar-bg: #020617;
@@ -37,9 +37,9 @@ body.theme-tech {
     --gradient-btn: linear-gradient(135deg, #38bdf8, #0ea5e9);
 }
 
-/* THEME PRINCESS (CÔNG CHÚA) */
+/* THEME PRINCESS (CÃ”NG CHÃšA) */
 body.theme-princess {
-    /* Nền tối hơn, vẫn giữ vibe công chúa */
+    /* Ná»n tá»‘i hÆ¡n, váº«n giá»¯ vibe cÃ´ng chÃºa */
     --bg-dark: radial-gradient(circle at top, #4c1d95, #1e1b4b 55%);
     --sidebar-bg: #312e81;
     --card-bg: #3730a3;
@@ -219,17 +219,17 @@ header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px s
     border-radius: 10px;
 }
 
-/* TABLE FIXES (SỬA LỖI TRỒNG LÊN NHAU) */
+/* TABLE FIXES (Sá»¬A Lá»–I TRá»’NG LÃŠN NHAU) */
 .table-container { width: 100%; overflow-x: auto; }
 .task-table { width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 12px; min-width: 600px; }
 .task-table th { background: #222; color: var(--accent-cyan); padding: 15px; text-align: left; font-size: 12px; }
 .task-table td { padding: 15px; border-bottom: 1px solid #222; font-size: 14px; color: #ccc; }
 
-/* NÚT TRẠNG THÁI (KHÔNG BỊ BÓP MÉO) */
+/* NÃšT TRáº NG THÃI (KHÃ”NG Bá»Š BÃ“P MÃ‰O) */
 .status-badge {
     padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: bold;
-    white-space: nowrap; /* Giữ chữ trên 1 dòng */
-    display: inline-flex; /* Fix hình dạng */
+    white-space: nowrap; /* Giá»¯ chá»¯ trÃªn 1 dÃ²ng */
+    display: inline-flex; /* Fix hÃ¬nh dáº¡ng */
     align-items: center;
     background: rgba(57, 255, 20, 0.1); color: var(--neon-green); border: 1px solid var(--neon-green);
     flex-shrink: 0;
@@ -292,7 +292,7 @@ header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px s
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.65);
-    display: none; /* sẽ bật bằng JS */
+    display: none; /* sáº½ báº­t báº±ng JS */
     align-items: center;
     justify-content: center;
     z-index: 999;
@@ -388,7 +388,7 @@ header { background: var(--sidebar-bg); padding: 15px 25px; border-bottom: 1px s
     line-height: 1;
 }
 
-/* AUDIO OVERLAY (NGHE THỬ) */
+/* AUDIO OVERLAY (NGHE THá»¬) */
 .audio-overlay {
     position: fixed;
     inset: 0;

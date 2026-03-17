@@ -1,24 +1,16 @@
-<h2 style="margin-top: 0; font-weight: 900; color: #fff;">TẠO VIDEO</h2>
-<div class="group-box" style="margin-bottom: 25px;">
-    <div>
-        <span class="label">Nội dung</span>
-        <textarea class="input-control" style="height: 120px; resize: vertical;"></textarea>
+<link rel="stylesheet" href="templaces/css/tao_video.css">
+
+<h2 style="margin-top: 0; font-weight: 900; color: var(--text-main); font-size: 22px; letter-spacing: 0.02em;">
+    Tạo Video
+</h2>
+
+<div class="video-gen-wrapper">
+    <div class="header-actions">
+        <button id="btn-add-video" class="btn-header">Thêm</button>
+        <button id="btn-start-video" class="btn-header">Bắt đầu</button>
+        <button id="btn-save-video" class="btn-header">Lưu</button>
     </div>
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
-        <div>
-            <span class="label">Thời lượng</span>
-            <select class="input-control">
-                <option selected>5s</option>
-                <option>10s</option>
-            </select>
+
+    <div id="video-display-area" class="display-workspace">
         </div>
-        <div>
-            <span class="label">Tỷ lệ</span>
-            <select class="input-control">
-                <option selected>9:16</option>
-                <option>16:9</option>
-            </select>
-        </div>
-    </div>
-    <button class="btn btn-gold" style="margin-top: 10px; width: 100%;">Tạo video</button>
 </div>

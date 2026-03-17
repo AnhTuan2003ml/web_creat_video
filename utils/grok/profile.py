@@ -16,15 +16,6 @@ def find_chrome():
         "/usr/bin/google-chrome-stable",
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",
-<<<<<<< HEAD
-=======
-
-        os.path.expandvars(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"C:\Users\%USERNAME%\AppData\Local\Google\Chrome\Application\chrome.exe"),
-    ]
->>>>>>> 8d63c7c4a82f5b0310f3ef76f86a479541c728b4
-
         os.path.expandvars(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"C:\Users\%USERNAME%\AppData\Local\Google\Chrome\Application\chrome.exe"),
@@ -46,12 +37,10 @@ def setting_grok_profile():
 
     url = "https://grok.com/"
 
-    subprocess.Popen(
+    proc = subprocess.Popen(
         [
             chrome,
             f"--user-data-dir={PROFILE_DIR}",
-            "--remote-debugging-port=9222",
-            "--remote-debugging-address=127.0.0.1",
             "--new-window",
             url
         ],
@@ -59,6 +48,8 @@ def setting_grok_profile():
         stderr=subprocess.DEVNULL,
         start_new_session=True
     )
+
+    return proc
 
 
 if __name__ == "__main__":
