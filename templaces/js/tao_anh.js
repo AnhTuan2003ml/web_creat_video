@@ -11,7 +11,7 @@ function _createImageForm({ characterSrc, characterName }) {
     const charBtnId = `${formId}-btn-select-character`;
     const prodBtnId = `${formId}-btn-select-product`;
     const resetBtnId = `${formId}-btn-reset-form`;
-    const genBtnId = `${formId}-btn-generate-video`;
+    const genBtnId = `${formId}-btn-generate`;
 
     const charBoxId = `${formId}-display-character`;
     const prodBoxId = `${formId}-display-product`;
@@ -115,14 +115,182 @@ function _createImageForm({ characterSrc, characterName }) {
 
     const genBtn = root.querySelector(`#${CSS.escape(genBtnId)}`);
     if (genBtn) {
-        genBtn.addEventListener('click', () => {
+        genBtn.addEventListener('click', async () => {
+            const isRunning = String(genBtn.dataset.running || '') === '1';
+            const existingTaskId = String(root.dataset.taskId || '').trim();
+
+            // Cancel
+            if (isRunning && existingTaskId) {
+                try {
+                    await fetch('/cancel_image_task', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ task_id: existingTaskId }),
+                    });
+                } catch (e) {}
+
+                try {
+                    if (window._singleImagePollers && window._singleImagePollers[existingTaskId]) {
+                        clearInterval(window._singleImagePollers[existingTaskId]);
+                        delete window._singleImagePollers[existingTaskId];
+                    }
+                } catch (e) {}
+
+                root.dataset.taskId = '';
+                genBtn.dataset.running = '0';
+                genBtn.textContent = 'Tạo';
+
+                const box = root.querySelector(`#${CSS.escape(resultBoxId)}`);
+                if (box) {
+                    box.innerHTML = '';
+                    const note = document.createElement('div');
+                    note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                    note.textContent = 'Đã hủy';
+                    box.appendChild(note);
+                }
+                return;
+            }
+
+            const charImg = root.querySelector(`[id$="-display-character"] img`);
+            const prodImg = root.querySelector(`[id$="-display-product"] img`);
+            const promptEl = root.querySelector(`[id$="-display-description"] textarea`);
+
+            const task = {
+                form_id: String(root.dataset.formId || '').trim(),
+                image1: charImg ? String(charImg.getAttribute('src') || '') : '',
+                image2: prodImg ? String(prodImg.getAttribute('src') || '') : '',
+                prompt: promptEl ? String(promptEl.value || '') : '',
+            };
+
+            const modelSelect = document.getElementById('model-select');
+            const provider = modelSelect ? String(modelSelect.options[modelSelect.selectedIndex].textContent || '') : '';
+
+            const aspectSelect = document.getElementById('aspect_ratio');
+            const ratio = aspectSelect ? String(aspectSelect.value || '9:16').trim() : '9:16';
+
+            const resultFolderLabel = document.getElementById('resultFolderLabel');
+            const out_dir_label = resultFolderLabel ? String(resultFolderLabel.textContent || '').trim() : '';
+
+            const _looksLikeAbsPath = (p) => {
+                const s = String(p || '').trim();
+                if (!s) return false;
+                if (/^[a-zA-Z]:\\/.test(s)) return true;
+                if (s.startsWith('/')) return true;
+                return false;
+            };
+            if (!_looksLikeAbsPath(out_dir_label)) {
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay('Vui lòng chọn thư mục lưu kết quả trước khi tạo ảnh');
+                } else {
+                    _showErrorOverlay('Vui lòng chọn thư mục lưu kết quả trước khi tạo ảnh');
+                }
+                return;
+            }
+
+            const maxTabsInput = document.getElementById('max-tabs-input');
+            let max_tabs = 5;
+            if (maxTabsInput) {
+                const n = parseInt(String(maxTabsInput.value || '').trim(), 10);
+                if (Number.isFinite(n) && n > 0) max_tabs = n;
+            }
+
             const box = root.querySelector(`#${CSS.escape(resultBoxId)}`);
-            if (!box) return;
-            box.innerHTML = '';
-            const note = document.createElement('div');
-            note.style.cssText = 'padding: 10px; color: #aaa; font-size: 12px;';
-            note.textContent = 'Chưa implement tạo ảnh.';
-            box.appendChild(note);
+            if (box) {
+                box.innerHTML = '';
+                box.onclick = null;
+                box.title = '';
+            }
+
+            genBtn.dataset.running = '1';
+            genBtn.textContent = 'Hủy';
+
+            try {
+                const res = await fetch('/create_images_batch_start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, out_dir_label, max_tabs, ratio, tasks: [task] }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data || data.ok !== true) {
+                    const msg = (data && (data.error || data.message)) ? (data.error || data.message) : 'Tạo ảnh thất bại';
+                    if (typeof window.showSuccessOverlay === 'function') {
+                        window.showSuccessOverlay(msg);
+                    } else {
+                        _showErrorOverlay(msg);
+                    }
+                    genBtn.dataset.running = '0';
+                    genBtn.textContent = 'Tạo';
+                    return;
+                }
+
+                let newTaskId = '';
+                try {
+                    const mappings = Array.isArray(data.tasks) ? data.tasks : [];
+                    const expectedFormId = String(task.form_id || '').trim();
+                    const found = mappings.find(m => m && String(m.form_id || '').trim() === expectedFormId);
+                    if (found && found.task_id) newTaskId = String(found.task_id || '').trim();
+                } catch (e) {
+                    newTaskId = '';
+                }
+
+                if (!newTaskId) {
+                    genBtn.dataset.running = '0';
+                    genBtn.textContent = 'Tạo';
+                    return;
+                }
+
+                root.dataset.taskId = newTaskId;
+                window._singleImagePollers = window._singleImagePollers || {};
+
+                const pollOnce = async () => {
+                    const tid = String(root.dataset.taskId || '').trim();
+                    if (!tid || tid !== newTaskId) return;
+
+                    try {
+                        const r = await fetch(`/task_image?task_id=${encodeURIComponent(tid)}`);
+                        const d = await r.json().catch(() => ({}));
+                        if (!d || d.ok !== true) return;
+
+                        if (d.status === 'completed' && d.url) {
+                            if (box) {
+                                box.innerHTML = '';
+                                const img = document.createElement('img');
+                                img.src = d.url;
+                                img.alt = 'result';
+                                img.style.maxWidth = '100%';
+                                img.style.maxHeight = '100%';
+                                box.appendChild(img);
+                            }
+                            genBtn.dataset.running = '0';
+                            genBtn.textContent = 'Tạo';
+                            if (window._singleImagePollers && window._singleImagePollers[tid]) {
+                                clearInterval(window._singleImagePollers[tid]);
+                                delete window._singleImagePollers[tid];
+                            }
+                        } else if (d.status === 'failed' || d.status === 'cancelled') {
+                            if (box) {
+                                box.innerHTML = '';
+                                const note = document.createElement('div');
+                                note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                                note.textContent = d.error || (d.status === 'failed' ? 'Tạo ảnh thất bại' : 'Đã hủy');
+                                box.appendChild(note);
+                            }
+                            genBtn.dataset.running = '0';
+                            genBtn.textContent = 'Tạo';
+                            if (window._singleImagePollers && window._singleImagePollers[tid]) {
+                                clearInterval(window._singleImagePollers[tid]);
+                                delete window._singleImagePollers[tid];
+                            }
+                        }
+                    } catch (e) {}
+                };
+
+                await pollOnce();
+                window._singleImagePollers[newTaskId] = setInterval(pollOnce, 1200);
+            } catch (e) {
+                genBtn.dataset.running = '0';
+                genBtn.textContent = 'Tạo';
+            }
         });
     }
 

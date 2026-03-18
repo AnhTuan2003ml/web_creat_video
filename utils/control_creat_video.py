@@ -6,7 +6,7 @@ import tempfile
 import shutil
 from typing import Any, Dict, List, Optional
 
-from utils.grok.creat_video import VideoJob, run_job_with_retry
+from utils.grok.creat_video import VideoJob, create_video_grok
 from utils.control_script import update_task_status
 from utils.control_ffmpeg import merge_video_clips, TRANSCODE_DIR, apply_background_music
 
@@ -126,9 +126,9 @@ async def _run_one_video_task(
             # Fix 4: Use Semaphore per scene for better tab utilization
             async with sem:
                 clip_dir = str(out_clips[idx])
-                job = VideoJob(image_path=img_path, prompt=prompt, out_path=clip_dir, task_id=task_id, retries=3)
-                
-                real_clip_path = await run_job_with_retry(context, job, cancel_event)
+                job = VideoJob(image_path=img_path, prompt=prompt, out_path=clip_dir, task_id=task_id)
+
+                real_clip_path = await create_video_grok(context, job, cancel_event)
                 
                 # Fix 2 & 3: Check real_clip_path and verify file size
                 if not real_clip_path or not os.path.exists(real_clip_path):

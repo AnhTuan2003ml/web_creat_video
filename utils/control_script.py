@@ -7,7 +7,9 @@ from flask import jsonify, request
 from werkzeug.utils import secure_filename
 from utils.clone_video import generate_prompt_json
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys
+
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT_DIR = os.path.join(BASE_DIR, "config", "KichBan")
 os.makedirs(SCRIPT_DIR, exist_ok=True)
 
@@ -286,6 +288,7 @@ def generate_script_handler():
     api_key = data.get("api_key")
     target_product = data.get("target_product", "Video Clone")
     language = data.get("language", "Vietnamese")
+    cleanup_temp = bool(data.get("cleanup_temp", False))
 
     # Always persist model + api_key to config/config.json (even if generation fails)
     try:
@@ -299,6 +302,19 @@ def generate_script_handler():
     
     if not video_path:
         return jsonify({"ok": False, "error": "Missing video_path"}), 400
+
+    # Normalize: allow sending just filename (e.g. temp_video.mp4) and resolve into TEMP_VIDEO_DIR
+    try:
+        video_path = str(video_path or '').strip()
+    except Exception:
+        video_path = video_path
+    try:
+        if video_path and not os.path.isabs(video_path) and ('/' not in video_path) and ('\\' not in video_path):
+            candidate = os.path.join(TEMP_VIDEO_DIR, video_path)
+            if os.path.exists(candidate):
+                video_path = candidate
+    except Exception:
+        pass
     
     if not api_key:
         return jsonify({"ok": False, "error": "Missing API key"}), 400
@@ -365,10 +381,44 @@ def generate_script_handler():
                 except Exception:
                     pass
                 return jsonify({"ok": False, "error": task["error"]}), 500
-            scenes = parsed.get("scenes", []) if isinstance(parsed.get("scenes"), list) else []
+
+            # Try multiple possible keys
+            for k in ("scenes", "Scenes", "SCENES", "data", "items"):
+                v = parsed.get(k)
+                if isinstance(v, list):
+                    scenes = v
+                    break
+
+            # Fallback: pick first list-like value in dict
+            if not scenes:
+                try:
+                    for _k, _v in parsed.items():
+                        if isinstance(_v, list):
+                            scenes = _v
+                            break
+                except Exception:
+                    scenes = []
         else:
             task["status"] = "failed"
             task["error"] = "Invalid AI response format"
+            try:
+                _write_json_file(tasks_file, tasks)
+            except Exception:
+                pass
+            return jsonify({"ok": False, "error": task["error"]}), 500
+
+        if not scenes:
+            task["status"] = "failed"
+            task["error"] = "AI returned empty scenes"
+            try:
+                dbg_dir = os.path.join(BASE_DIR, "temp")
+                os.makedirs(dbg_dir, exist_ok=True)
+                dbg_path = os.path.join(dbg_dir, f"clone_video_ai_empty_{task_id}.txt")
+                with open(dbg_path, "w", encoding="utf-8") as f:
+                    f.write(str(result or ""))
+                task["debug_file"] = dbg_path
+            except Exception:
+                pass
             try:
                 _write_json_file(tasks_file, tasks)
             except Exception:
@@ -405,7 +455,8 @@ def generate_script_handler():
             pass
         return jsonify({"ok": False, "error": str(exc)}), 500
     finally:
-        _safe_remove_video(video_path)
+        if cleanup_temp:
+            _safe_remove_video(video_path)
 
 
 def list_tasks_handler():

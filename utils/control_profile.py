@@ -1,5 +1,31 @@
 import asyncio
 import threading
+import subprocess
+
+def _win_subprocess_kwargs():
+    import os
+    if os.name != 'nt':
+        return {}
+    try:
+        import subprocess
+    except Exception:
+        return {}
+
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+    except Exception:
+        si = None
+
+    kw = {}
+    try:
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    except Exception:
+        pass
+    if si is not None:
+        kw['startupinfo'] = si
+    return kw
 
 from utils.grok.profile import PROFILE_DIR, find_chrome, setting_grok_profile
 
@@ -75,6 +101,8 @@ class _GlobalBrowser:
         import subprocess
         import time
         import os
+        import json
+        import sys
 
         def _port_open(host: str, port: int) -> bool:
             try:
@@ -84,18 +112,39 @@ class _GlobalBrowser:
             except Exception:
                 return False
 
-        async def _wait_cdp_ready(timeout_s: float = 8.0) -> bool:
+        def _load_cdp_port_default_9222() -> int:
+            try:
+                base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                cfg_path = os.path.join(base_dir, 'config', 'config.json')
+                if not os.path.exists(cfg_path):
+                    return 9222
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f) or {}
+                raw = (cfg.get('CDP_PORT', None) if isinstance(cfg, dict) else None)
+                if raw is None and isinstance(cfg, dict):
+                    raw = cfg.get('cdp_port', None)
+                n = int(str(raw).strip()) if raw is not None else 9222
+                if n < 1 or n > 65535:
+                    return 9222
+                return n
+            except Exception:
+                return 9222
+
+        async def _wait_cdp_ready(port: int, timeout_s: float = 8.0) -> bool:
             deadline = time.time() + float(timeout_s)
             while time.time() < deadline:
-                if _port_open("127.0.0.1", 9222):
+                if _port_open("127.0.0.1", int(port)):
                     return True
                 await asyncio.sleep(0.25)
             return False
+
+        cdp_port = _load_cdp_port_default_9222()
 
         def _start_chrome_profile_with_cdp() -> None:
             chrome = find_chrome()
             if not chrome:
                 raise RuntimeError("Chrome not found")
+
             try:
                 os.makedirs(PROFILE_DIR, exist_ok=True)
             except Exception:
@@ -106,14 +155,16 @@ class _GlobalBrowser:
                 [
                     chrome,
                     f"--user-data-dir={PROFILE_DIR}",
-                    "--remote-debugging-port=9222",
+                    f"--remote-debugging-port={int(cdp_port)}",
                     "--remote-debugging-address=127.0.0.1",
                     "--new-window",
                     url,
                 ],
+
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                **_win_subprocess_kwargs(),
             )
             try:
                 self._spawned_pid = int(getattr(proc, 'pid', None) or 0) or None
@@ -140,17 +191,17 @@ class _GlobalBrowser:
 
         # Ensure Chrome profile is running WITH CDP enabled, then connect via CDP.
         # control_profile.py is responsible for enabling 9222.
-        if not await _wait_cdp_ready(timeout_s=1.0):
+        if not await _wait_cdp_ready(cdp_port, timeout_s=1.0):
             try:
                 _start_chrome_profile_with_cdp()
             except Exception:
                 pass
 
-        if not await _wait_cdp_ready(timeout_s=12.0):
-            raise RuntimeError("CDP port 9222 is not available")
+        if not await _wait_cdp_ready(cdp_port, timeout_s=12.0):
+            raise RuntimeError(f"CDP port {cdp_port} is not available")
 
-        print("DEBUG: Connecting to Chrome via CDP (port 9222)...")
-        self._browser = await self._playwright.chromium.connect_over_cdp('http://127.0.0.1:9222', timeout=15000)
+        print(f"DEBUG: Connecting to Chrome via CDP (port {cdp_port})...")
+        self._browser = await self._playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{int(cdp_port)}', timeout=15000)
         self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720}, position={'x': -50, 'y': -50})
 
         # Try to force download directory via CDP if requested (best-effort)
@@ -284,7 +335,7 @@ class _GlobalBrowser:
                 import os
                 import subprocess
                 if os.name == 'nt':
-                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_win_subprocess_kwargs())
                 else:
                     subprocess.run(["kill", "-9", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
@@ -303,7 +354,7 @@ class _GlobalBrowser:
                     + prof
                     + "*' } | Select-Object -ExpandProperty ProcessId"
                 )
-                out = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], stderr=subprocess.DEVNULL)
+                out = subprocess.check_output(["powershell", "-NoProfile", "-Command", ps], stderr=subprocess.DEVNULL, **_win_subprocess_kwargs())
                 pids = []
                 try:
                     for line in out.decode(errors='ignore').splitlines():
@@ -314,7 +365,7 @@ class _GlobalBrowser:
                     pids = []
                 for p in pids:
                     try:
-                        subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_win_subprocess_kwargs())
                     except Exception:
                         pass
         except Exception:
@@ -331,7 +382,7 @@ class _GlobalBrowser:
                     self._submit(_do(), timeout=20)
                 except Exception:
                     pass
-            
+
             # 2) MANDATORY HARD KILL (fallback for all cases: crash, restart, hang)
             try:
                 import os
@@ -341,7 +392,7 @@ class _GlobalBrowser:
                     prof_path = os.path.abspath(PROFILE_DIR)
                     # Convert to double backslash for WMI/PowerShell matching
                     prof_match = prof_path.replace('\\', '\\\\')
-                    
+
                     # Kill by port 9222 OR by profile directory in command line
                     ps_cmd = (
                         "Get-CimInstance Win32_Process | "
@@ -350,18 +401,16 @@ class _GlobalBrowser:
                         "($_.CommandLine -like '*--remote-debugging-port=9222*' -or $_.CommandLine -like '*--user-data-dir=" + prof_match + "*') "
                         "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
                     )
-                    subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_win_subprocess_kwargs())
                 else:
                     # Unix fallback
-                    subprocess.run(["pkill", "-9", "-f", "remote-debugging-port=9222"], 
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.run(["pkill", "-9", "-f", "remote-debugging-port=9222"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
-            
+
             # Reset state
             self._spawned_pid = None
-            
+
         return True
 
 

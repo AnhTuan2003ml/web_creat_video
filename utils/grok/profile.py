@@ -1,11 +1,33 @@
 import os
 import subprocess
 import shutil
+import sys
 
-# Lấy đường dẫn tuyệt đối đến thư mục gốc của project (thư mục chứa app.py)
+
+def _win_subprocess_kwargs():
+    if os.name != 'nt':
+        return {}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+    except Exception:
+        si = None
+    kw = {}
+    try:
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    except Exception:
+        pass
+    if si is not None:
+        kw['startupinfo'] = si
+    return kw
+
+
+# Lấy đường dẫn tuyệt đối đến thư mục gốc của project (thư mục chứa app.py) hoặc thư mục chứa file exe
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
+_PROJECT_ROOT = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.abspath(os.path.join(_CURRENT_DIR, "..", ".."))
 PROFILE_DIR = os.path.join(_PROJECT_ROOT, "profile")
+
 
 print(f"DEBUG: Profile directory set to: {PROFILE_DIR}")
 
@@ -46,7 +68,8 @@ def setting_grok_profile():
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        start_new_session=True
+        start_new_session=True,
+        **_win_subprocess_kwargs(),
     )
 
     return proc

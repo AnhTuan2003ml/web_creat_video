@@ -17,7 +17,6 @@ async function loadWorkspace(page) {
         targetContent.style.display = 'block';
         return;
     }
-
     // Nếu chưa có thì load mới và append vào root
     try {
         const res = await fetch(`/templaces/html/${page}`);
@@ -31,6 +30,85 @@ async function loadWorkspace(page) {
         root.appendChild(wrapper);
     } catch (err) {
         console.error('Không thể tải workspace:', err);
+    }
+}
+
+function initExitAppBindings() {
+    const exitBtn = document.getElementById('exitAppBtn');
+    if (exitBtn) {
+        exitBtn.onclick = async function () {
+            try {
+                if (window.__shutdownRequested) {
+                    return;
+                }
+
+                const taskIdsNow = (typeof window.getVideoTaskIdsFromUI === 'function') ? window.getVideoTaskIdsFromUI() : [];
+                const hasForms = Array.isArray(taskIdsNow) && taskIdsNow.length > 0;
+
+                // Nếu không có form/video nào => thoát ngay
+                if (!hasForms) {
+                    window.__shutdownRequested = true;
+                    try {
+                        if (navigator && navigator.sendBeacon) {
+                            navigator.sendBeacon('/exit_app', new Blob([JSON.stringify({ action: 'shutdown', task_ids: [] })], { type: 'application/json' }));
+                        } else {
+                            await fetch('/shutdown', { method: 'POST' });
+                        }
+                    } catch (_) {}
+                    try {
+                        window.close();
+                    } catch (_) {}
+                    return;
+                }
+
+                if (typeof window.askExitAppConfirm !== 'function') {
+                    return;
+                }
+
+                const choice = await window.askExitAppConfirm();
+                if (choice === 'cancel') {
+                    return;
+                }
+
+                // Close tab immediately; let server handle save/discard + shutdown.
+                window.__shutdownRequested = true;
+                try {
+                    const taskIds = (typeof window.getVideoTaskIdsFromUI === 'function') ? window.getVideoTaskIdsFromUI() : [];
+                    const action = (choice === 'save') ? 'save' : 'discard';
+                    if (navigator && navigator.sendBeacon) {
+                        navigator.sendBeacon('/exit_app', new Blob([JSON.stringify({ action, task_ids: taskIds })], { type: 'application/json' }));
+                    } else {
+                        await fetch('/exit_app', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action, task_ids: taskIds }),
+                            keepalive: true,
+                        });
+                    }
+                } catch (_) {}
+
+                try { window.close(); } catch (_) {}
+            } catch (_) {
+            }
+        };
+    }
+
+    if (!window.__exitBeforeUnloadBound) {
+        window.__exitBeforeUnloadBound = true;
+        window.addEventListener('beforeunload', function (e) {
+            try {
+                if (window.__shutdownRequested) {
+                    return undefined;
+                }
+                const taskIds = (typeof window.getVideoTaskIdsFromUI === 'function') ? window.getVideoTaskIdsFromUI() : [];
+                if (Array.isArray(taskIds) && taskIds.length > 0) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                    return '';
+                }
+            } catch (_) {}
+            return undefined;
+        });
     }
 }
 
@@ -223,6 +301,10 @@ function enableEdit() {
     if (!userIdSpan) return;
     if (userIdSpan.contentEditable === 'true') return;
 
+    try {
+        window.__userIdBeforeEdit = String(userIdSpan.innerText || '').trim();
+    } catch (_) {}
+
     userIdSpan.contentEditable = 'true';
     userIdSpan.focus();
 
@@ -244,6 +326,12 @@ function cancelEdit() {
     const userIdSpan = document.getElementById('userId');
     if (!userIdSpan) return;
 
+    try {
+        if (window.__userIdBeforeEdit !== undefined && window.__userIdBeforeEdit !== null) {
+            userIdSpan.innerText = String(window.__userIdBeforeEdit);
+        }
+    } catch (_) {}
+
     userIdSpan.contentEditable = 'false';
     const btnCopy = document.getElementById('btn-copy');
     const btnSave = document.getElementById('btn-save');
@@ -262,7 +350,7 @@ function initConfirmModalBindings() {
     const btn = document.getElementById('confirmSaveBtn');
     if (!btn) return;
 
-    btn.onclick = function () {
+    btn.onclick = async function () {
         const userIdSpan = document.getElementById('userId');
         if (!userIdSpan) return;
 
@@ -272,6 +360,21 @@ function initConfirmModalBindings() {
             if (msg) msg.innerText = 'User ID không hợp lệ';
             return;
         }
+
+        // Persist to config/config.json
+        try {
+            await fetch('/save_config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ACCOUNT_ID: newId }),
+            });
+        } catch (_) {}
+
+        try {
+            if (window.configData && typeof window.configData === 'object') {
+                window.configData.ACCOUNT_ID = newId;
+            }
+        } catch (_) {}
 
         userIdSpan.contentEditable = 'false';
 
@@ -670,6 +773,7 @@ function initSettingsAccountBindings() {
 window.onload = async function () {
     await loadOverlays();
     initConfirmModalBindings();
+    initExitAppBindings();
     initTabBindings();
 
     // Khởi tạo tab mặc định (Home) mà không xóa nội dung

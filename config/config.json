@@ -1,7 +1,7 @@
 {
   "API": "https://server.autovideo9999.store/",
   "MODEL_AI": "gemini-2.5-flash",
-  "API_CHAT": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0",
+  "API_CHAT": "AIzaSyBy8VcSJGdteeDhMn5fZR4mDnuCo__ExIo",
   "VERSION": "3.2.3",
   "TAI_KHOAN": {
     "VEO": {
@@ -23,5 +23,6 @@
   "PROJECT": "41bed3ad-7d07-43e4-999e-07d45a44dc",
   "API_KEY": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0",
   "cloneVideoModel": "gemini-2.5-flash",
-  "cloneVideoApiKey": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0"
+  "cloneVideoApiKey": "AIzaSyBy8VcSJGdteeDhMn5fZR4mDnuCo__ExIo",
+  "CDP_PORT": 9222
 }

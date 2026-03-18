@@ -13,6 +13,25 @@ TRANSCODE_DIR = os.path.join(tempfile.gettempdir(), "web_creat_video_transcoded"
 os.makedirs(TRANSCODE_DIR, exist_ok=True)
 
 
+def _win_subprocess_kwargs():
+    if os.name != 'nt':
+        return {}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+    except Exception:
+        si = None
+    kw = {}
+    try:
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    except Exception:
+        pass
+    if si is not None:
+        kw['startupinfo'] = si
+    return kw
+
+
 def _ffprobe_duration(path: str) -> float:
     cmd = [
         "ffprobe",
@@ -25,7 +44,7 @@ def _ffprobe_duration(path: str) -> float:
         "default=noprint_wrappers=1:nokey=1",
         path,
     ]
-    out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode("utf-8", errors="ignore").strip()
+    out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, **_win_subprocess_kwargs()).decode("utf-8", errors="ignore").strip()
     try:
         return float(out)
     except Exception:
@@ -47,7 +66,7 @@ def _ffprobe_has_audio(path: str) -> bool:
             "csv=p=0",
             path,
         ]
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode("utf-8", errors="ignore").strip()
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT, **_win_subprocess_kwargs()).decode("utf-8", errors="ignore").strip()
         return bool(out)
     except Exception:
         return False
@@ -66,69 +85,37 @@ def apply_background_music(
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    has_audio = _ffprobe_has_audio(video_path)
+    # Always drop original audio and use ONLY background music
+    filter_complex = f"[1:a]volume={music_volume}[aout]"
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        video_path,
+        "-stream_loop",
+        "-1",
+        "-i",
+        music_path,
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        out_path,
+    ]
 
-    if has_audio:
-        filter_complex = (
-            f"[0:a]volume=1[a0];"
-            f"[1:a]volume={music_volume}[a1];"
-            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-        )
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            video_path,
-            "-stream_loop",
-            "-1",
-            "-i",
-            music_path,
-            "-filter_complex",
-            filter_complex,
-            "-map",
-            "0:v",
-            "-map",
-            "[aout]",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            out_path,
-        ]
-    else:
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            video_path,
-            "-stream_loop",
-            "-1",
-            "-i",
-            music_path,
-            "-map",
-            "0:v",
-            "-map",
-            "1:a",
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            out_path,
-        ]
-
-    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
     return out_path
 
 
@@ -186,7 +173,7 @@ def merge_video_clips(
         # just copy
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", clips[0], "-c", "copy", out_path]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
         return out_path
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -217,7 +204,7 @@ def merge_video_clips(
                 "copy",
                 out_path,
             ]
-            subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
             return out_path
         finally:
             try:

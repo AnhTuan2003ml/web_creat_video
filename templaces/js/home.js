@@ -128,6 +128,40 @@ function renderThemes() {
 function initHomePage() {
     renderThemes();
 
+    const cdpPortInput = document.getElementById('cdpPortInput');
+    if (cdpPortInput) {
+        // Load initial value from config.json
+        fetch('/config/config.json')
+            .then(res => res.json())
+            .then(cfg => {
+                const raw = (cfg && (cfg.CDP_PORT ?? cfg.cdp_port)) ? (cfg.CDP_PORT ?? cfg.cdp_port) : 9222;
+                let n = parseInt(String(raw), 10);
+                if (!Number.isFinite(n) || n < 1 || n > 65535) n = 9222;
+                cdpPortInput.value = String(n);
+            })
+            .catch(() => {
+                cdpPortInput.value = '9222';
+            });
+
+        const _savePort = async () => {
+            let n = parseInt(String(cdpPortInput.value || '').trim(), 10);
+            if (!Number.isFinite(n) || n < 1 || n > 65535) {
+                n = 9222;
+                cdpPortInput.value = String(n);
+            }
+            try {
+                await fetch('/save_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ CDP_PORT: n }),
+                });
+            } catch (_) {}
+        };
+
+        cdpPortInput.addEventListener('change', _savePort);
+        cdpPortInput.addEventListener('blur', _savePort);
+    }
+
     const clearTasksBtn = document.getElementById('clearTasksBtn');
     if (clearTasksBtn) {
         clearTasksBtn.onclick = async function () {

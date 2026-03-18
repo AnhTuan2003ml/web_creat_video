@@ -342,9 +342,14 @@ async function generateScript() {
 
     const model = modelSelect.value;
     const apiKey = apiKeyInput.value.trim();
-    const videoPath = (window.__cloneVideoState && window.__cloneVideoState.serverVideoPath)
-        ? window.__cloneVideoState.serverVideoPath
-        : videoPathInput.value.trim();
+
+    const manualPath = videoPathInput.value.trim();
+    const looksLikeAbsWinPath = /^[a-zA-Z]:\\/.test(manualPath);
+    const videoPath = looksLikeAbsWinPath
+        ? manualPath
+        : ((window.__cloneVideoState && window.__cloneVideoState.serverVideoPath)
+            ? window.__cloneVideoState.serverVideoPath
+            : manualPath);
 
     if (!model || !apiKey || !videoPath) {
         alert('Vui lòng điền đầy đủ thông tin');
@@ -581,13 +586,16 @@ function initCloneVideoPage() {
                 });
                 const uploadBody = await uploadRes.json().catch(() => ({}));
 
-                if (!uploadRes.ok || !uploadBody.ok || !uploadBody.video_path) {
-                    console.error('Upload temp video thất bại:', uploadBody.error);
+                if (!uploadRes.ok || !uploadBody.ok) {
                     alert('Không thể copy video vào thư mục tạm: ' + (uploadBody.error || 'Lỗi không xác định'));
                 } else {
                     window.__cloneVideoState.serverVideoPath = uploadBody.video_path;
                     if (cloneVideoPathInput) {
-                        cloneVideoPathInput.value = uploadBody.filename || file.name;
+                        const current = String(cloneVideoPathInput.value || '').trim();
+                        const isAbs = /^[a-zA-Z]:\\/.test(current);
+                        if (!isAbs) {
+                            cloneVideoPathInput.value = uploadBody.filename || file.name;
+                        }
                     }
                 }
             } catch (err) {

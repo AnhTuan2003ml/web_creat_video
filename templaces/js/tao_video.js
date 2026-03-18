@@ -11,7 +11,7 @@ function _getNextVideoIndex(displayArea) {
 function _setRowCreateBtnState(videoIndex, isRunning) {
     const btn = document.getElementById(`video-btn-create-${videoIndex}`);
     if (!btn) return;
-    btn.textContent = isRunning ? 'Dừng' : 'Tạo';
+    btn.textContent = isRunning ? 'Hủy' : 'Tạo';
     btn.dataset.running = isRunning ? '1' : '0';
 }
 
@@ -746,71 +746,89 @@ function initTaoVideoPage() {
     const displayArea = document.getElementById('video-display-area');
     if (!addBtn || !displayArea) return;
 
-    if (saveBtn) {
-        saveBtn.onclick = async () => {
+    window.getVideoTaskIdsFromUI = () => {
+        try {
             const rows = Array.from(displayArea.querySelectorAll('.video-row'));
-            const taskIds = rows
+            return rows
                 .map((r) => String((r && r.dataset && r.dataset.taskId) ? r.dataset.taskId : '').trim())
                 .filter((x) => !!x);
+        } catch (e) {
+            return [];
+        }
+    };
 
-            if (taskIds.length === 0) {
+    window.saveVideoResultsFromUI = async () => {
+        const rows = Array.from(displayArea.querySelectorAll('.video-row'));
+        const taskIds = rows
+            .map((r) => String((r && r.dataset && r.dataset.taskId) ? r.dataset.taskId : '').trim())
+            .filter((x) => !!x);
+
+        if (taskIds.length === 0) {
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Không có video nào để lưu');
+            } else {
+                alert('Không có video nào để lưu');
+            }
+            return { ok: false, empty: true };
+        }
+
+        try {
+            const res = await fetch('/save_video_results', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_ids: taskIds }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok || !body.ok) {
+                const msg = body && body.error ? body.error : 'Không thể lưu video';
                 if (typeof window.showSuccessOverlay === 'function') {
-                    window.showSuccessOverlay('Không có video nào để lưu');
+                    window.showSuccessOverlay(msg);
                 } else {
-                    alert('Không có video nào để lưu');
+                    alert(msg);
                 }
-                return;
+                return { ok: false, error: msg };
             }
 
+            const urls = body && body.result_urls ? body.result_urls : {};
+            rows.forEach((rowEl) => {
+                const tid = String(rowEl.dataset.taskId || '').trim();
+                const newUrl = urls && tid ? String(urls[tid] || '').trim() : '';
+                if (!newUrl) return;
+                rowEl.dataset.resultUrl = newUrl;
+                const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+                if (idx > 0) {
+                    _setVideoResultLink(idx, newUrl);
+                    const playBtn = document.getElementById(`video-play-btn-${idx}`);
+                    if (playBtn) playBtn.style.display = 'flex';
+                    _setVideoSceneStatus(idx, 'Đã lưu');
+                }
+            });
+
             try {
-                const res = await fetch('/save_video_results', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task_ids: taskIds }),
-                });
-                const body = await res.json().catch(() => ({}));
-                if (!res.ok || !body.ok) {
-                    const msg = body && body.error ? body.error : 'Không thể lưu video';
-                    if (typeof window.showSuccessOverlay === 'function') {
-                        window.showSuccessOverlay(msg);
-                    } else {
-                        alert(msg);
-                    }
-                    return;
-                }
+                displayArea.innerHTML = '';
+                displayArea.classList.remove('is-visible');
+            } catch (e) {}
 
-                const urls = body && body.result_urls ? body.result_urls : {};
-                rows.forEach((rowEl) => {
-                    const tid = String(rowEl.dataset.taskId || '').trim();
-                    const newUrl = urls && tid ? String(urls[tid] || '').trim() : '';
-                    if (!newUrl) return;
-                    rowEl.dataset.resultUrl = newUrl;
-                    const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
-                    if (idx > 0) {
-                        _setVideoResultLink(idx, newUrl);
-                        const playBtn = document.getElementById(`video-play-btn-${idx}`);
-                        if (playBtn) playBtn.style.display = 'flex';
-                        _setVideoSceneStatus(idx, 'Đã lưu');
-                    }
-                });
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Đã lưu thành công');
+            } else {
+                alert('Đã lưu thành công');
+            }
+            return { ok: true };
+        } catch (e) {
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Lỗi lưu video');
+            } else {
+                alert('Lỗi lưu video');
+            }
+            return { ok: false, error: 'Lỗi lưu video' };
+        }
+    };
 
-                // Clear UI list after saving
-                try {
-                    displayArea.innerHTML = '';
-                    displayArea.classList.remove('is-visible');
-                } catch (e) {}
-
-                if (typeof window.showSuccessOverlay === 'function') {
-                    window.showSuccessOverlay('Đã lưu thành công');
-                } else {
-                    alert('Đã lưu thành công');
-                }
-            } catch (e) {
-                if (typeof window.showSuccessOverlay === 'function') {
-                    window.showSuccessOverlay('Lỗi lưu video');
-                } else {
-                    alert('Lỗi lưu video');
-                }
+    if (saveBtn) {
+        saveBtn.onclick = async () => {
+            if (typeof window.saveVideoResultsFromUI === 'function') {
+                await window.saveVideoResultsFromUI();
             }
         };
     }
@@ -936,7 +954,7 @@ function initTaoVideoPage() {
         _setVideoSceneStatus(idx, 'Đang tạo cảnh 1');
 
         try {
-            const res = await fetch('/create_video_one_start', {
+            const res = await fetch('/create_videos_batch_start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -947,7 +965,7 @@ function initTaoVideoPage() {
                     quality,
                     music_url,
                     music_name,
-                    task,
+                    tasks: [task],
                 }),
             });
             const data = await res.json().catch(() => ({}));
@@ -962,7 +980,18 @@ function initTaoVideoPage() {
                 return;
             }
 
-            const newTaskId = String(data.task_id || '').trim();
+            let newTaskId = '';
+            try {
+                const mappings = Array.isArray(data.tasks) ? data.tasks : [];
+                const expectedFormId = String(task && task.form_id ? task.form_id : '').trim();
+                const found = mappings.find(m => m && String(m.form_id || '').trim() === expectedFormId);
+                if (found && found.task_id) {
+                    newTaskId = String(found.task_id || '').trim();
+                }
+            } catch (e) {
+                newTaskId = '';
+            }
+
             if (newTaskId) {
                 rowEl.dataset.taskId = newTaskId;
                 _createVideosPending = _createVideosPending || {};

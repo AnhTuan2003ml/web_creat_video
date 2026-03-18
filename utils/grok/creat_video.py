@@ -55,7 +55,6 @@ class VideoJob:
     prompt: str
     out_path: str
     task_id: str = ''
-    retries: int = 3
 
 
 _ACTIVE_VIDEO_PAGES = {}
@@ -314,26 +313,6 @@ def _find_recent_video_in_folder(folder: str, created_after_ts: float) -> str:
     return best
 
 
-async def _move_or_copy_with_retry(src: str, dst: str, tries: int = 8, delay_s: float = 0.7) -> bool:
-    for i in range(int(tries)):
-        try:
-            if os.path.exists(dst) and os.path.getsize(dst) > 0:
-                return True
-        except Exception:
-            pass
-
-        try:
-            shutil.move(src, dst)
-            return True
-        except Exception:
-            try:
-                shutil.copy2(src, dst)
-                return True
-            except Exception:
-                await asyncio.sleep(delay_s)
-    return False
-
-
 def _snapshot_video_files(folder: str) -> set:
     d = str(folder or '').strip()
     if not d or not os.path.isdir(d):
@@ -423,7 +402,7 @@ async def _wait_file_stable_pro(path, min_bytes=200_000, stable_ticks=2, tick_ms
     return False
 
 
-async def download_by_click_save_as(page, out_path, timeout_ms=240000, retries=3):
+async def download_by_click_save_as(page, out_path, timeout_ms=240000):
     out_path = str(out_path or '').strip()
     if not out_path:
         raise ValueError('Missing out_path')
@@ -439,64 +418,53 @@ async def download_by_click_save_as(page, out_path, timeout_ms=240000, retries=3
         'a[download]'
     ]
 
-    last_error = None
+    # 1. Wait for overlay to disappear (Strict like C#)
+    await _strict_wait_creating_overlay_disappear(page, timeout_s=240)
+    await asyncio.sleep(1.0) # StepDelayAsync in C#
 
-    for attempt in range(retries):
+    # 2. Find download button
+    chosen = None
+    find_deadline = asyncio.get_event_loop().time() + 25
+    while asyncio.get_event_loop().time() < find_deadline and not chosen:
+        for sel in candidate_selectors:
+            try:
+                loc = page.locator(sel).first
+                if await loc.is_visible():
+                    chosen = loc
+                    break
+            except Exception:
+                pass
+        if not chosen:
+            await asyncio.sleep(0.5)
+
+    if not chosen:
+        raise RuntimeError("Download button not found")
+
+    # 3. Expect Download + Robust Click (Event-based like C#)
+    async with page.expect_download(timeout=timeout_ms) as download_info:
         try:
-            # 1. Wait for overlay to disappear (Strict like C#)
-            await _strict_wait_creating_overlay_disappear(page, timeout_s=240)
-            await asyncio.sleep(1.0) # StepDelayAsync in C#
-
-            # 2. Find download button
-            chosen = None
-            find_deadline = asyncio.get_event_loop().time() + 25
-            while asyncio.get_event_loop().time() < find_deadline and not chosen:
-                for sel in candidate_selectors:
-                    try:
-                        loc = page.locator(sel).first
-                        if await loc.is_visible():
-                            chosen = loc
-                            break
-                    except: pass
-                if not chosen: await asyncio.sleep(0.5)
-
-            if not chosen:
-                raise RuntimeError("Download button not found")
-
-            # 3. Expect Download + Robust Click (Event-based like C#)
-            async with page.expect_download(timeout=timeout_ms) as download_info:
-                try:
-                    await chosen.scroll_into_view_if_needed()
-                    # Click logic matched to C# fallback
-                    try:
-                        await chosen.click(force=True, timeout=15000, no_wait_after=True)
-                    except Exception:
-                        await page.evaluate("(el) => el.click()", await chosen.element_handle())
-                except Exception as e:
-                    raise RuntimeError(f"Click failed: {e}")
-
-            download = await download_info.value
-            
-            # Determine real output path
-            suggested = download.suggested_filename or f"grok_video_{attempt}.mp4"
-            final_path = os.path.join(target_dir, suggested)
-
-            # 4. Save and Verify (Like C#)
-            await download.save_as(final_path)
-            
-            # Verify File Stable and min size (200KB like C#)
-            is_stable = await _wait_file_stable_pro(final_path, min_bytes=200_000)
-            if is_stable and _looks_like_mp4(final_path):
-                return final_path
-            
-            raise RuntimeError(f"File verification failed (size < 200KB or unstable)")
-
+            await chosen.scroll_into_view_if_needed()
+            try:
+                await chosen.click(force=True, timeout=15000, no_wait_after=True)
+            except Exception:
+                await page.evaluate("(el) => el.click()", await chosen.element_handle())
         except Exception as e:
-            last_error = e
-            print(f"[DOWNLOAD ATTEMPT {attempt+1} FAIL] {e}")
-            await asyncio.sleep(2.0) # StepDelayAsync in C#
+            raise RuntimeError(f"Click failed: {e}")
 
-    raise RuntimeError(f"Download failed after {retries} attempts: {last_error}")
+    download = await download_info.value
+
+    # Determine real output path
+    suggested = download.suggested_filename or "grok_video.mp4"
+    final_path = os.path.join(target_dir, suggested)
+
+    # 4. Save and Verify (Like C#)
+    await download.save_as(final_path)
+
+    is_stable = await _wait_file_stable_pro(final_path, min_bytes=200_000)
+    if is_stable and _looks_like_mp4(final_path):
+        return final_path
+
+    raise RuntimeError("File verification failed (size < 200KB or unstable)")
 
 
 # =========================
@@ -548,16 +516,33 @@ async def create_video_grok(context, job: VideoJob, cancel_event=None, timeout_s
         await btn.wait_for(state="visible", timeout=20000)
         await btn.click()
 
-        # ✅ Restore logic: delay 4s and click into main container to blur / close floating UI
-        await asyncio.sleep(4)
+        # Only click into main container after we have navigated to /imagine/post/...
         try:
-            # Click vào main container cụ thể theo request để chắc chắn đóng floating UI
-            await page.locator('main[tabindex="-1"]').first.click(timeout=3000)
-        except Exception:
+            deadline = asyncio.get_event_loop().time() + 25.0
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    u = str(page.url or '')
+                except Exception:
+                    u = ''
+                if '/imagine/post/' in u:
+                    break
+                await asyncio.sleep(0.3)
+
             try:
-                await _click_empty_area(page)
+                u = str(page.url or '')
             except Exception:
-                pass
+                u = ''
+
+            if '/imagine/post/' in u:
+                try:
+                    await page.locator('main[tabindex="-1"]').first.click(timeout=3000)
+                except Exception:
+                    try:
+                        await _click_empty_area(page)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
         await asyncio.sleep(2)
 
@@ -595,28 +580,6 @@ async def create_video_grok(context, job: VideoJob, cancel_event=None, timeout_s
 
 
 # =========================
-# RETRY
-# =========================
-
-async def run_job_with_retry(context, job: VideoJob, cancel_event=None):
-
-    last_error = None
-
-    for attempt in range(job.retries):
-
-        try:
-            print(f"[TRY {attempt+1}] {job.out_path}")
-            return await create_video_grok(context, job, cancel_event)
-
-        except Exception as e:
-            last_error = e
-            print(f"[FAIL {attempt+1}] {e}")
-            await asyncio.sleep(3)
-
-    raise RuntimeError(f"Job failed: {last_error}")
-
-
-# =========================
 # WORKER
 # =========================
 
@@ -627,7 +590,7 @@ async def worker(name, context, queue: asyncio.Queue, cancel_event):
         job = await queue.get()
 
         try:
-            await run_job_with_retry(context, job, cancel_event)
+            await create_video_grok(context, job, cancel_event)
         except Exception as e:
             print(f"[ERROR][{name}] {e}")
 

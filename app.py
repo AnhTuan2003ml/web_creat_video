@@ -37,7 +37,7 @@ from utils.control_script import (
     upload_temp_video_handler,
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
 MUSIC_DIR = os.path.join(BASE_DIR, "config", "Music")
 THEME_IMG_DIR = os.path.join(BASE_DIR, "templaces", "img")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
@@ -147,17 +147,17 @@ def _write_data_url_to_file(data_url: str, out_path: str) -> None:
 @app.route("/")
 def index():
     # Phục vụ giao diện chính
-    return send_from_directory("templaces/html", "index.html")
+    return send_from_directory(os.path.join(BASE_DIR, 'templaces', 'html'), "index.html")
 
 
 @app.route('/templaces/<path:filename>')
 def serve_templates(filename: str):
-    return send_from_directory('templaces', filename)
+    return send_from_directory(os.path.join(BASE_DIR, 'templaces'), filename)
 
 
 @app.route('/config/<path:filename>')
 def serve_config(filename: str):
-    return send_from_directory('config', filename)
+    return send_from_directory(os.path.join(BASE_DIR, 'config'), filename)
 
 
 @app.route('/generated/<path:filename>')
@@ -579,6 +579,349 @@ def save_video_results():
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
+@app.route('/discard_video_results', methods=['POST'])
+def discard_video_results():
+    try:
+        payload = request.get_json(silent=True) or {}
+        task_ids = payload.get('task_ids')
+        if task_ids is None:
+            task_ids = []
+
+        if not isinstance(task_ids, list):
+            return jsonify({'ok': False, 'error': 'task_ids must be a list'}), 400
+
+        task_ids = [str(x).strip() for x in task_ids if str(x).strip()]
+        if not task_ids:
+            return jsonify({'ok': True, 'deleted': 0})
+
+        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        if not os.path.exists(tasks_file):
+            return jsonify({'ok': True, 'deleted': 0})
+
+        try:
+            import json
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                raw = f.read()
+            tasks_data = json.loads(raw) if raw else []
+        except Exception:
+            tasks_data = []
+
+        by_id = {}
+        for it in (tasks_data if isinstance(tasks_data, list) else []):
+            tid = str((it or {}).get('id') or '').strip()
+            if tid:
+                by_id[tid] = it
+
+        batch_dirs_to_remove = set()
+        for tid in task_ids:
+            t = by_id.get(tid)
+            if not t:
+                continue
+
+            merged_out = str((t or {}).get('merged_out') or '').strip()
+            result_file = str((t or {}).get('result_file') or '').strip()
+            scenes_dir = str((t or {}).get('scenes_dir') or '').strip()
+
+            src = ''
+            if result_file and os.path.exists(result_file):
+                src = result_file
+            elif merged_out and os.path.exists(merged_out):
+                src = merged_out
+
+            batch_dir = ''
+            try:
+                if scenes_dir:
+                    batch_dir = os.path.dirname(os.path.abspath(scenes_dir))
+                elif src:
+                    p = os.path.dirname(os.path.abspath(src))
+                    if os.path.basename(os.path.normpath(p)).startswith('video_batch_'):
+                        batch_dir = p
+            except Exception:
+                batch_dir = ''
+
+            if batch_dir:
+                base = os.path.basename(os.path.normpath(batch_dir))
+                if base.startswith('video_batch_'):
+                    batch_dirs_to_remove.add(batch_dir)
+
+        import shutil
+        deleted = 0
+        for d in sorted(batch_dirs_to_remove, key=lambda x: len(str(x)), reverse=True):
+            try:
+                if os.path.isdir(d):
+                    shutil.rmtree(d, ignore_errors=True)
+                    deleted += 1
+            except Exception:
+                pass
+
+        return jsonify({'ok': True, 'deleted': deleted})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+def _force_exit_later(delay_s: float = 0.4):
+    try:
+        import os
+        import threading
+
+        def _force_exit():
+            try:
+                os._exit(0)
+            except Exception:
+                pass
+
+        try:
+            threading.Timer(float(delay_s), _force_exit).start()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+@app.route('/exit_app', methods=['POST'])
+def exit_app():
+    """Server-side exit: optionally save or discard video temp, then shutdown app."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        action = str(payload.get('action') or '').strip().lower()
+        task_ids = payload.get('task_ids')
+        if task_ids is None:
+            task_ids = []
+        if not isinstance(task_ids, list):
+            task_ids = []
+        task_ids = [str(x).strip() for x in task_ids if str(x).strip()]
+
+        # Perform requested action best-effort
+        if action == 'save' and task_ids:
+            # Inline minimal copy of save_video_results behavior
+            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            if os.path.exists(tasks_file):
+                try:
+                    import json
+                    with open(tasks_file, 'r', encoding='utf-8') as f:
+                        raw = f.read()
+                    tasks_data = json.loads(raw) if raw else []
+                except Exception:
+                    tasks_data = []
+
+                by_id = {}
+                for it in (tasks_data if isinstance(tasks_data, list) else []):
+                    tid = str((it or {}).get('id') or '').strip()
+                    if tid:
+                        by_id[tid] = it
+
+                def _unique_path(dir_path: str, filename: str) -> str:
+                    base, ext = os.path.splitext(filename)
+                    cand = os.path.join(dir_path, filename)
+                    if not os.path.exists(cand):
+                        return cand
+                    for i in range(1, 1000):
+                        alt = os.path.join(dir_path, f"{base} ({i}){ext}")
+                        if not os.path.exists(alt):
+                            return alt
+                    return os.path.join(dir_path, f"{base}_{uuid.uuid4().hex[:6]}{ext}")
+
+                changed = False
+                batch_dirs_to_remove = set()
+                import shutil
+
+                for tid in task_ids:
+                    t = by_id.get(tid)
+                    if not t:
+                        continue
+
+                    merged_out = str((t or {}).get('merged_out') or '').strip()
+                    result_file = str((t or {}).get('result_file') or '').strip()
+                    scenes_dir = str((t or {}).get('scenes_dir') or '').strip()
+
+                    src = ''
+                    if result_file and os.path.exists(result_file):
+                        src = result_file
+                    elif merged_out and os.path.exists(merged_out):
+                        src = merged_out
+                    if not src:
+                        continue
+
+                    batch_dir = ''
+                    out_root = ''
+                    try:
+                        if scenes_dir:
+                            batch_dir = os.path.dirname(os.path.abspath(scenes_dir))
+                            out_root = os.path.dirname(os.path.abspath(batch_dir))
+                        else:
+                            p = os.path.dirname(os.path.abspath(src))
+                            if os.path.basename(os.path.normpath(p)).startswith('video_batch_'):
+                                batch_dir = p
+                                out_root = os.path.dirname(os.path.abspath(batch_dir))
+                    except Exception:
+                        batch_dir = ''
+                        out_root = ''
+
+                    if out_root and os.path.isdir(out_root):
+                        dst = _unique_path(out_root, os.path.basename(src))
+                        try:
+                            shutil.move(src, dst)
+                        except Exception:
+                            try:
+                                shutil.copy2(src, dst)
+                            except Exception:
+                                dst = ''
+                        if dst:
+                            t['saved_file'] = dst
+                            changed = True
+
+                    if batch_dir:
+                        base = os.path.basename(os.path.normpath(batch_dir))
+                        if base.startswith('video_batch_'):
+                            batch_dirs_to_remove.add(batch_dir)
+
+                for d in sorted(batch_dirs_to_remove, key=lambda x: len(str(x)), reverse=True):
+                    try:
+                        if os.path.isdir(d):
+                            shutil.rmtree(d, ignore_errors=True)
+                    except Exception:
+                        pass
+
+                if changed:
+                    try:
+                        import json
+                        with open(tasks_file, 'w', encoding='utf-8') as f:
+                            json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+                    except Exception:
+                        pass
+
+        elif action == 'discard' and task_ids:
+            # Reuse discard logic by calling it inline
+            try:
+                tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                if os.path.exists(tasks_file):
+                    try:
+                        import json
+                        with open(tasks_file, 'r', encoding='utf-8') as f:
+                            raw = f.read()
+                        tasks_data = json.loads(raw) if raw else []
+                    except Exception:
+                        tasks_data = []
+
+                    by_id = {}
+                    for it in (tasks_data if isinstance(tasks_data, list) else []):
+                        tid = str((it or {}).get('id') or '').strip()
+                        if tid:
+                            by_id[tid] = it
+
+                    batch_dirs_to_remove = set()
+                    for tid in task_ids:
+                        t = by_id.get(tid)
+                        if not t:
+                            continue
+
+                        merged_out = str((t or {}).get('merged_out') or '').strip()
+                        result_file = str((t or {}).get('result_file') or '').strip()
+                        scenes_dir = str((t or {}).get('scenes_dir') or '').strip()
+
+                        src = ''
+                        if result_file and os.path.exists(result_file):
+                            src = result_file
+                        elif merged_out and os.path.exists(merged_out):
+                            src = merged_out
+
+                        batch_dir = ''
+                        try:
+                            if scenes_dir:
+                                batch_dir = os.path.dirname(os.path.abspath(scenes_dir))
+                            elif src:
+                                p = os.path.dirname(os.path.abspath(src))
+                                if os.path.basename(os.path.normpath(p)).startswith('video_batch_'):
+                                    batch_dir = p
+                        except Exception:
+                            batch_dir = ''
+
+                        if batch_dir:
+                            base = os.path.basename(os.path.normpath(batch_dir))
+                            if base.startswith('video_batch_'):
+                                batch_dirs_to_remove.add(batch_dir)
+
+                    import shutil
+                    for d in sorted(batch_dirs_to_remove, key=lambda x: len(str(x)), reverse=True):
+                        try:
+                            if os.path.isdir(d):
+                                shutil.rmtree(d, ignore_errors=True)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Then shutdown
+        try:
+            from utils.control_profile import close_global_browser
+            try:
+                close_global_browser('video')
+            except Exception:
+                pass
+            try:
+                close_global_browser('image')
+            except Exception:
+                pass
+            try:
+                close_global_browser('default')
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        func = request.environ.get('werkzeug.server.shutdown')
+        if callable(func):
+            try:
+                func()
+            except Exception:
+                pass
+
+        _force_exit_later(0.4)
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/shutdown', methods=['POST'])
+def shutdown_app():
+    try:
+        import os
+        import threading
+
+        # Best-effort: close Playwright/Chrome
+        try:
+            from utils.control_profile import close_global_browser
+            try:
+                close_global_browser('video')
+            except Exception:
+                pass
+            try:
+                close_global_browser('image')
+            except Exception:
+                pass
+            try:
+                close_global_browser('default')
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Stop werkzeug dev server (if running under it)
+        func = request.environ.get('werkzeug.server.shutdown')
+        if callable(func):
+            try:
+                func()
+            except Exception:
+                pass
+
+        # Force-exit the process to ensure the app closes (debug server may keep running)
+        _force_exit_later(0.4)
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
 @app.route('/create_images_batch_start', methods=['POST'])
 def create_images_batch_start():
     try:
@@ -629,7 +972,7 @@ def create_images_batch_start():
             if not form_id:
                 continue
 
-            if not img1 or not img2 or not prompt:
+            if not img1 or not prompt:
                 continue
 
             out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.png'
@@ -676,6 +1019,239 @@ def create_images_batch_start():
             }
 
         return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/cancel_create_images_batch', methods=['POST'])
+def cancel_create_images_batch():
+    try:
+        with _CREATE_IMAGES_CANCEL_LOCK:
+            _CREATE_IMAGES_CANCEL.set()
+
+        task_ids = []
+        try:
+            with _ASYNC_IMAGE_BATCHES_LOCK:
+                for b in (_ASYNC_IMAGE_BATCHES or {}).values():
+                    for m in (b or {}).get('mapping') or []:
+                        if m and m.get('task_id'):
+                            task_ids.append(str(m.get('task_id')))
+        except Exception:
+            task_ids = []
+
+        _mark_tasks_cancelled_best_effort(task_ids if task_ids else None)
+
+        try:
+            with _ASYNC_IMAGE_BATCHES_LOCK:
+                _ASYNC_IMAGE_BATCHES.clear()
+        except Exception:
+            pass
+
+        # Close browser quickly to stop all image tabs
+        try:
+            from utils.control_profile import close_global_browser
+            close_global_browser(kind='image')
+        except Exception:
+            pass
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/cancel_image_task', methods=['POST'])
+def cancel_image_task_api():
+    try:
+        payload = request.get_json(silent=True) or {}
+        task_id = str(payload.get('task_id') or '').strip()
+        if not task_id:
+            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
+
+        _mark_tasks_cancelled_best_effort([task_id])
+
+        # Close ONLY the tab for this image task (run + wait briefly so UI sees immediate close)
+        try:
+            from utils.control_profile import get_global_browser
+            from utils.grok.creat_image import close_task_page
+            gb = get_global_browser('image')
+            if getattr(gb, '_loop', None) is not None:
+                fut = asyncio.run_coroutine_threadsafe(close_task_page(task_id), gb._loop)
+                try:
+                    fut.result(timeout=2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Cleanup output file (best-effort)
+        try:
+            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            if os.path.exists(tasks_file):
+                import json
+                with open(tasks_file, 'r', encoding='utf-8') as f:
+                    raw = f.read()
+                try:
+                    tasks_data = json.loads(raw) if raw else []
+                except Exception:
+                    tasks_data = []
+
+                result_file = ''
+                for it in (tasks_data if isinstance(tasks_data, list) else []):
+                    if str((it or {}).get('id') or '') != task_id:
+                        continue
+                    result_file = str((it or {}).get('result_file') or '').strip()
+                    break
+
+                if result_file and os.path.exists(result_file):
+                    try:
+                        os.remove(result_file)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/cancel_video_task', methods=['POST'])
+def cancel_video_task_api():
+    try:
+        payload = request.get_json(silent=True) or {}
+        task_id = str(payload.get('task_id') or '').strip()
+        if not task_id:
+            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
+
+        _mark_tasks_cancelled_best_effort([task_id])
+
+        # Signal cancellation to video worker
+        try:
+            from utils.control_creat_video import cancel_video_task as _cancel
+            _cancel(task_id)
+        except Exception:
+            pass
+
+        # Close ONLY the tab for this video task (run + wait briefly so UI sees immediate close)
+        try:
+            from utils.control_profile import get_global_browser
+            from utils.grok.creat_video import close_task_page
+            gb = get_global_browser('video')
+            if getattr(gb, '_loop', None) is not None:
+                fut = asyncio.run_coroutine_threadsafe(close_task_page(task_id), gb._loop)
+                try:
+                    fut.result(timeout=2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Fallback: find batch folder from in-memory async batches (if tasks.json not updated yet)
+        batch_dir_from_batches = ''
+        try:
+            with _ASYNC_VIDEO_BATCHES_LOCK:
+                for b in (_ASYNC_VIDEO_BATCHES or {}).values():
+                    mapping = (b or {}).get('mapping') or []
+                    found = False
+                    for m in (mapping or []):
+                        if str((m or {}).get('task_id') or '').strip() == task_id:
+                            found = True
+                            break
+                    if not found:
+                        continue
+                    of = str((b or {}).get('out_folder_abs') or '').strip()
+                    if of:
+                        batch_dir_from_batches = of
+                        break
+        except Exception:
+            batch_dir_from_batches = ''
+
+        # Cleanup temp scenes dir / merged file / batch folder (best-effort)
+        try:
+            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            if os.path.exists(tasks_file):
+                import json
+                with open(tasks_file, 'r', encoding='utf-8') as f:
+                    raw = f.read()
+                try:
+                    tasks_data = json.loads(raw) if raw else []
+                except Exception:
+                    tasks_data = []
+
+                scenes_dir = ''
+                merged_out = ''
+                batch_dir = ''
+                changed = False
+                for it in (tasks_data if isinstance(tasks_data, list) else []):
+                    if str((it or {}).get('id') or '') != task_id:
+                        continue
+                    scenes_dir = str((it or {}).get('scenes_dir') or '').strip()
+                    merged_out = str((it or {}).get('merged_out') or '').strip()
+                    try:
+                        if scenes_dir:
+                            parent = os.path.dirname(os.path.abspath(scenes_dir))
+                            base = os.path.basename(os.path.normpath(parent))
+                            if base.startswith('video_batch_'):
+                                batch_dir = parent
+                    except Exception:
+                        batch_dir = ''
+
+                    if not batch_dir:
+                        try:
+                            if merged_out:
+                                parent = os.path.dirname(os.path.abspath(merged_out))
+                                base = os.path.basename(os.path.normpath(parent))
+                                if base.startswith('video_batch_'):
+                                    batch_dir = parent
+                        except Exception:
+                            batch_dir = ''
+
+                    if scenes_dir:
+                        it['scenes_dir'] = ''
+                        changed = True
+                    break
+
+                if changed:
+                    with open(tasks_file, 'w', encoding='utf-8') as f:
+                        json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+
+                import shutil
+                if scenes_dir and os.path.isdir(scenes_dir):
+                    shutil.rmtree(scenes_dir, ignore_errors=True)
+                if merged_out and os.path.exists(merged_out):
+                    try:
+                        os.remove(merged_out)
+                    except Exception:
+                        pass
+
+                # Prefer deleting the whole temp batch folder for this task
+                if batch_dir and os.path.isdir(batch_dir):
+                    try:
+                        shutil.rmtree(batch_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+
+                if (not batch_dir) and batch_dir_from_batches and os.path.isdir(batch_dir_from_batches):
+                    try:
+                        base = os.path.basename(os.path.normpath(batch_dir_from_batches))
+                        if base.startswith('video_batch_'):
+                            shutil.rmtree(batch_dir_from_batches, ignore_errors=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # If tasks.json read failed, still try deleting batch dir from batches
+        try:
+            if batch_dir_from_batches and os.path.isdir(batch_dir_from_batches):
+                import shutil
+                base = os.path.basename(os.path.normpath(batch_dir_from_batches))
+                if base.startswith('video_batch_'):
+                    shutil.rmtree(batch_dir_from_batches, ignore_errors=True)
+        except Exception:
+            pass
+
+        return jsonify({'ok': True})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
@@ -1209,7 +1785,7 @@ def create_images_batch():
             if not form_id:
                 continue
 
-            if not img1 or not img2 or not prompt:
+            if not img1 or not prompt:
                 results.append({'form_id': form_id, 'url': None, 'error': 'Thiếu ảnh hoặc prompt'})
                 continue
 

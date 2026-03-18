@@ -2,6 +2,26 @@ import asyncio
 import os
 import re
 
+_ACTIVE_IMAGE_PAGES = {}
+
+async def close_task_page(task_id: str) -> bool:
+    tid = str(task_id or '').strip()
+    if not tid:
+        return False
+    page = _ACTIVE_IMAGE_PAGES.get(tid)
+    if not page:
+        return False
+    try:
+        if not page.is_closed():
+            await page.close()
+    except Exception:
+        pass
+    try:
+        _ACTIVE_IMAGE_PAGES.pop(tid, None)
+    except Exception:
+        pass
+    return True
+
 UPLOAD_INPUT = """
 input.hidden[type='file'][name='files'],
 input.hidden[type='file']
@@ -77,11 +97,13 @@ button[aria-label="Delete"],
 button[aria-label="Delete image"]
 """
 
-async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:16", cancel_event=None):
-
+async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:16", cancel_event=None, task_id: str = ""):
     page = await context.new_page()
 
     try:
+        tid = str(task_id or '').strip()
+        if tid:
+            _ACTIVE_IMAGE_PAGES[tid] = page
 
         if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
             raise asyncio.CancelledError()
@@ -104,88 +126,73 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
             raise asyncio.CancelledError()
 
         # =====================
-        # set aspect ratio (smart + retry)
+        # set aspect ratio
         # =====================
 
-        try:
+        ratio_btn = page.locator(SELECTOR_ASPECT_BUTTON).filter(
+            has=page.locator("svg")
+        ).first
 
-            ratio_btn = page.locator(SELECTOR_ASPECT_BUTTON).filter(
-                has=page.locator("svg")
-            ).first
+        await ratio_btn.wait_for(state="visible", timeout=15000)
 
-            await ratio_btn.wait_for(state="visible", timeout=15000)
+        ratio_clean = str(ratio or "").strip()
 
-            ratio_clean = str(ratio or "").strip()
+        if ratio_clean:
 
-            if ratio_clean:
+            # =====================
+            # get current ratio
+            # =====================
+            current_ratio = ""
 
-                # =====================
-                # get current ratio
-                # =====================
-                current_ratio = ""
+            try:
+                current_ratio = (await ratio_btn.locator("span").inner_text()).strip()
+            except:
+                pass
 
+            # =====================
+            # skip nếu đã đúng
+            # =====================
+            if current_ratio == ratio_clean:
+                print(f"[SKIP] Ratio already = {current_ratio}")
+
+            else:
+                await ratio_btn.click()
+                await page.wait_for_timeout(300)
+
+                ratio_option = page.locator(
+                    f'div[role="menuitem"]:has(span:text-matches("^\\\\s*{re.escape(ratio_clean)}\\\\s*$", "i"))'
+                ).first
+
+                await ratio_option.wait_for(state="visible", timeout=10000)
+                await ratio_option.scroll_into_view_if_needed()
+                await ratio_option.click(force=True)
+
+                await page.wait_for_timeout(500)
+
+                # verify lại
                 try:
-                    current_ratio = (await ratio_btn.locator("span").inner_text()).strip()
+                    new_ratio = (await ratio_btn.locator("span").inner_text()).strip()
                 except:
-                    pass
+                    new_ratio = ""
 
-                # =====================
-                # skip nếu đã đúng
-                # =====================
-                if current_ratio == ratio_clean:
-                    print(f"[SKIP] Ratio already = {current_ratio}")
+                if new_ratio == ratio_clean:
+                    print(f"[OK] Ratio set = {new_ratio}")
 
-                else:
-
-                    for attempt in range(2):  # retry tối đa 2 lần
-
-                        await ratio_btn.click()
-                        await page.wait_for_timeout(300)
-
-                        ratio_option = page.locator(
-                            f'div[role="menuitem"]:has(span:text-matches("^\\\\s*{re.escape(ratio_clean)}\\\\s*$", "i"))'
-                        ).first
-
-                        await ratio_option.wait_for(state="visible", timeout=10000)
-                        await ratio_option.scroll_into_view_if_needed()
-                        await ratio_option.click(force=True)
-
-                        await page.wait_for_timeout(500)
-
-                        # verify lại
-                        try:
-                            new_ratio = (await ratio_btn.locator("span").inner_text()).strip()
-                        except:
-                            new_ratio = ""
-
-                        if new_ratio == ratio_clean:
-                            print(f"[OK] Ratio set = {new_ratio}")
-                            break
-                        else:
-                            print(f"[RETRY] Ratio not applied ({new_ratio})")
-
-        except Exception as e:
-            print("[WARN] Set ratio failed:", e)
         # =====================
         # select IMAGE mode (before upload)
         # =====================
 
-        try:
+        image_mode_btn = page.locator(SELECTOR_IMAGE_MODE).first
 
-            image_mode_btn = page.locator(SELECTOR_IMAGE_MODE).first
+        await image_mode_btn.wait_for(state="visible", timeout=10000)
 
-            await image_mode_btn.wait_for(state="visible", timeout=10000)
+        # chỉ click nếu chưa được chọn
+        aria_checked = await image_mode_btn.get_attribute("aria-checked")
 
-            # chỉ click nếu chưa được chọn
-            aria_checked = await image_mode_btn.get_attribute("aria-checked")
+        if aria_checked != "true":
+            await image_mode_btn.click()
 
-            if aria_checked != "true":
-                await image_mode_btn.click()
-
-            await asyncio.sleep(0.5)
-
-        except Exception:
-            pass
+        await asyncio.sleep(0.5)
 
         # =====================
         # upload images
@@ -205,16 +212,32 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
                 await asyncio.sleep(0.5)
             return False
 
+        def _norm_img(v):
+            s = str(v or '').strip()
+            if not s:
+                return ''
+            low = s.lower()
+            if low in ('null', 'none', 'undefined', 'nan'):
+                return ''
+            return s
+
+        img1 = _norm_img(image1)
+        img2 = _norm_img(image2)
+
+        if not img1:
+            raise ValueError('Missing image1')
+
         upload = page.locator(UPLOAD_INPUT).first
         await upload.wait_for(state="attached", timeout=30000)
 
-        await upload.set_input_files([image1])
-        await _wait_attachments_count_at_least(1, timeout_ms=60000)
-        await asyncio.sleep(1)
-
-        await upload.set_input_files([image2])
-        await _wait_attachments_count_at_least(2, timeout_ms=60000)
-        await asyncio.sleep(1)
+        if img2:
+            await upload.set_input_files([img1, img2])
+            await _wait_attachments_count_at_least(2, timeout_ms=60000)
+            await asyncio.sleep(1)
+        else:
+            await upload.set_input_files([img1])
+            await _wait_attachments_count_at_least(1, timeout_ms=60000)
+            await asyncio.sleep(1)
 
         if cancel_event is not None and getattr(cancel_event, "is_set", None) and cancel_event.is_set():
             raise asyncio.CancelledError()
@@ -283,25 +306,6 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
             pass
 
         await asyncio.sleep(1)
-
-        # =====================
-        # wait overlay disappear
-        # =====================
-
-        overlay = page.locator(SELECTOR_CREATING_OVERLAY)
-
-        try:
-
-            await overlay.first.wait_for(state="visible", timeout=20000)
-
-            await page.wait_for_selector(
-                SELECTOR_CREATING_OVERLAY,
-                state="hidden",
-                timeout=180000
-            )
-
-        except:
-            pass
 
         # =====================
         # WAIT GENERATED THUMB URL
@@ -378,5 +382,15 @@ async def create_image_grok(context, image1, image2, prompt, out_path, ratio="9:
         raise RuntimeError("Image file not stable")
 
     finally:
+        try:
+            if not page.is_closed():
+                await page.close()
+        except Exception:
+            pass
 
-        await page.close()
+        try:
+            tid = str(task_id or '').strip()
+            if tid and _ACTIVE_IMAGE_PAGES.get(tid) is page:
+                _ACTIVE_IMAGE_PAGES.pop(tid, None)
+        except Exception:
+            pass

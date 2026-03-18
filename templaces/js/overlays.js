@@ -130,6 +130,58 @@ function askUninstallConfirm() {
     });
 }
 
+function askExitAppConfirm() {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('exitAppModal');
+        const btnSave = document.getElementById('exitAppSaveBtn');
+        const btnDiscard = document.getElementById('exitAppDiscardBtn');
+        const btnCancel = document.getElementById('exitAppCancelBtn');
+
+        if (!modal || !btnSave || !btnDiscard || !btnCancel) {
+            resolve('cancel');
+            return;
+        }
+
+        let settled = false;
+
+        const cleanup = () => {
+            btnSave.onclick = null;
+            btnDiscard.onclick = null;
+            btnCancel.onclick = null;
+            document.onkeydown = null;
+        };
+
+        const close = () => {
+            modal.style.display = 'none';
+            cleanup();
+        };
+
+        const done = (choice) => {
+            if (settled) return;
+            settled = true;
+            close();
+            resolve(choice);
+        };
+
+        modal.style.display = 'flex';
+
+        btnSave.onclick = () => done('save');
+        btnDiscard.onclick = () => done('discard');
+        btnCancel.onclick = () => done('cancel');
+
+        document.onkeydown = function (e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                done('cancel');
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                done('save');
+            }
+        };
+    });
+}
+
 function askDesiredMusicName(defaultName) {
     return new Promise((resolve) => {
         const modal = document.getElementById('saveMusicNameModal');
