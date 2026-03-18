@@ -98,11 +98,12 @@
         <div class="group-box">
             <div>
                 <span class="label">Nhạc nền video</span>
-                <select class="input-control" id="musicSelect">
-                    <option selected>None (Mặc định)</option>
-                    <option>vibrant-fashion.mp3</option>
-                    <option>cinematic-bgm.mp3</option>
-                </select>
+                <input class="input-control" id="musicSelect" list="musicSelectList" placeholder="Gõ để tìm nhạc..." />
+                <datalist id="musicSelectList">
+                    <option value="None (Mặc định)"></option>
+                    <option value="vibrant-fashion.mp3"></option>
+                    <option value="cinematic-bgm.mp3"></option>
+                </datalist>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
                 <button class="btn btn-gold" id="addMusicBtn" style="grid-column: span 2; background: var(--accent-purple); color: white;">+ Thêm âm thanh</button>

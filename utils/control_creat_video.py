@@ -73,6 +73,21 @@ def _decode_data_url_to_temp_file(data_url: str, suffix: str = ".png") -> str:
     return path
 
 
+def _read_account_id_from_config() -> str:
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cfg_path = os.path.join(base_dir, 'config', 'config.json')
+        if not os.path.exists(cfg_path):
+            return ''
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f) or {}
+        if isinstance(cfg, dict):
+            return str(cfg.get('ACCOUNT_ID') or cfg.get('account_id') or '').strip()
+    except Exception:
+        pass
+    return ''
+
+
 async def _run_one_video_task(
     context,
     task: Dict[str, Any],
@@ -98,6 +113,87 @@ async def _run_one_video_task(
         update_task_status(task_id, "failed", error="Missing merged_out")
         return None
 
+    credit_uid = _read_account_id_from_config()
+    if not credit_uid:
+        update_task_status(task_id, "failed", error="Missing ACCOUNT_ID", credit_add_success=False)
+        return None
+
+    # Verify credit first (before heavy work: download/merge)
+    try:
+        from utils.callserver import add_count_async, verify_count_async
+
+        update_task_status(
+            task_id,
+            "processing",
+            phase="verifying",
+        )
+
+        add_res = await add_count_async(credit_uid)
+        add_ok = bool(getattr(add_res, 'success', False))
+        add_msg = str(getattr(add_res, 'message', '') or '')
+        data0 = getattr(add_res, 'data', None)
+        credit_request_id = ''
+        if isinstance(data0, dict):
+            credit_request_id = str(data0.get('request_id') or '').strip()
+
+        if not add_ok:
+            msg = add_msg or 'Đã hết lượt'
+            update_task_status(
+                task_id,
+                "failed",
+                credit_add_success=False,
+                credit_add_message=msg,
+                credit_request_id=credit_request_id,
+                credit_verified=False,
+                credit_verify_message="add_count failed",
+                redirect_to_payment=True,
+                phase="verifying",
+            )
+            return None
+
+        if not credit_request_id:
+            update_task_status(
+                task_id,
+                "failed",
+                credit_add_success=False,
+                credit_add_message=add_msg,
+                credit_request_id=credit_request_id,
+                credit_verified=False,
+                credit_verify_message="add_count missing request_id",
+                phase="verifying",
+            )
+            return None
+
+        vr = await verify_count_async(credit_request_id, True)
+        vr_ok = bool(getattr(vr, 'success', False))
+        vr_msg = str(getattr(vr, 'message', '') or '')
+        if not vr_ok:
+            update_task_status(
+                task_id,
+                "failed",
+                credit_add_success=True,
+                credit_add_message=add_msg,
+                credit_request_id=credit_request_id,
+                credit_verified=False,
+                credit_verify_message=vr_msg,
+                phase="verifying",
+            )
+            return None
+
+        update_task_status(
+            task_id,
+            "processing",
+            credit_add_success=True,
+            credit_add_message=add_msg,
+            credit_request_id=credit_request_id,
+            credit_verified=True,
+            credit_verify_message=vr_msg,
+            phase="verified",
+        )
+    except Exception as e:
+        update_task_status(task_id, "failed", error=str(e), credit_verified=False, credit_verify_message=str(e), phase="verifying")
+        return None
+
     tmp_files: List[str] = []
     try:
         for idx, scene in enumerate(scenes):
@@ -121,6 +217,7 @@ async def _run_one_video_task(
                 scene_index=idx + 1,
                 total_scenes=len(scenes),
                 progress_percent=int((idx / max(1, len(scenes))) * 100),
+                phase="downloading",
             )
 
             # Fix 4: Use Semaphore per scene for better tab utilization
@@ -158,6 +255,7 @@ async def _run_one_video_task(
                 scene_index=idx + 1,
                 total_scenes=len(scenes),
                 progress_percent=int(((idx + 1) / max(1, len(scenes))) * 100),
+                phase="downloading",
             )
 
         # Fix 7: Persist scene map once at the end
@@ -219,14 +317,18 @@ async def _run_one_video_task(
 
         update_task_status(
             task_id,
-            "completed",
+            "processing",
             result_file=merged_path,
             result_url=f"/transcoded/{trans_name}",
             effect_key=effect_key,
             out_clips=list(out_clips),
             merged_out=str(merged_out),
             scenes_dir=_get_scenes_dir(out_clips),
+            progress_percent=100,
+            phase="completed",
         )
+
+        update_task_status(task_id, "completed", phase="completed")
         return True
 
     except asyncio.CancelledError:

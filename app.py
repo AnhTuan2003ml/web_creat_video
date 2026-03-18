@@ -9,6 +9,9 @@ import subprocess
 import threading
 from typing import Dict, Any
 
+import json
+import time
+
 from utils.control_music import (
     list_music_handler,
     serve_music_handler,
@@ -43,6 +46,79 @@ THEME_IMG_DIR = os.path.join(BASE_DIR, "templaces", "img")
 GENERATED_DIR = os.path.join(BASE_DIR, "generated")
 
 app = Flask(__name__, static_folder=".", static_url_path="/static")
+
+
+_ACCOUNT_CHECK_CACHE_LOCK = threading.Lock()
+_ACCOUNT_CHECK_CACHE: Dict[str, Any] = {
+    'ts': 0.0,
+    'user_id': '',
+    'result': None,
+}
+
+
+def _run_coro_blocking(coro):
+    try:
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(coro)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
+    except Exception:
+        raise
+
+
+def _read_account_id_from_config() -> str:
+    try:
+        cfg_path = os.path.join(BASE_DIR, 'config', 'config.json')
+        if not os.path.exists(cfg_path):
+            return ''
+        with open(cfg_path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f) or {}
+        if isinstance(cfg, dict):
+            return str(cfg.get('ACCOUNT_ID') or cfg.get('account_id') or '').strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _cache_check_result(user_id: str, res_obj) -> None:
+    try:
+        with _ACCOUNT_CHECK_CACHE_LOCK:
+            _ACCOUNT_CHECK_CACHE['ts'] = time.time()
+            _ACCOUNT_CHECK_CACHE['user_id'] = str(user_id or '')
+            _ACCOUNT_CHECK_CACHE['result'] = res_obj
+    except Exception:
+        pass
+
+
+def _startup_check_account_async() -> None:
+    try:
+        from utils.callserver import check_async
+
+        user_id = _read_account_id_from_config()
+        if not user_id:
+            return
+
+        res = _run_coro_blocking(check_async(user_id))
+        _cache_check_result(user_id, res)
+    except Exception:
+        pass
+
+
+try:
+    threading.Thread(target=_startup_check_account_async, daemon=True).start()
+except Exception:
+    pass
 
 
 _CREATE_IMAGES_CANCEL = threading.Event()
@@ -214,6 +290,65 @@ def debug_routes():
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
+@app.route('/api/check', methods=['POST'])
+def api_check_account():
+    try:
+        payload = request.get_json(silent=True) or {}
+        user_id = str(payload.get('user_id') or payload.get('id') or '').strip()
+        if not user_id:
+            return jsonify({'ok': False, 'error': 'Missing user_id'}), 400
+
+        # Serve cached startup result if it matches (best-effort)
+        res_obj = None
+        try:
+            with _ACCOUNT_CHECK_CACHE_LOCK:
+                cached_uid = str(_ACCOUNT_CHECK_CACHE.get('user_id') or '')
+                cached_res = _ACCOUNT_CHECK_CACHE.get('result')
+                cached_ts = float(_ACCOUNT_CHECK_CACHE.get('ts') or 0.0)
+            if cached_uid and cached_uid == user_id and cached_res is not None:
+                # cache TTL + avoid reusing cached errors
+                is_fresh = (time.time() - cached_ts) < 60.0
+                if is_fresh:
+                    try:
+                        ok_flag = bool(getattr(cached_res, 'success', False))
+                        data0 = getattr(cached_res, 'data', None)
+                        err_code = str((data0 or {}).get('error_code') or '') if isinstance(data0, dict) else ''
+                        if ok_flag:
+                            res_obj = cached_res
+                        else:
+                            # do not reuse error cache for these codes
+                            if err_code and err_code.upper() not in ('BROTLI', 'ERROR'):
+                                res_obj = cached_res
+                    except Exception:
+                        res_obj = None
+        except Exception:
+            res_obj = None
+
+        if res_obj is None:
+            from utils.callserver import check_async
+            res_obj = _run_coro_blocking(check_async(user_id))
+            _cache_check_result(user_id, res_obj)
+
+        data = getattr(res_obj, 'data', None) if res_obj is not None else None
+        if not isinstance(data, dict):
+            data = {}
+
+        count = data.get('count', 0)
+        limit = data.get('limit', 0)
+
+        return jsonify({
+            'ok': True,
+            'success': bool(getattr(res_obj, 'success', False)),
+            'message': str(getattr(res_obj, 'message', '') or ''),
+            'redirect_to_payment': bool(getattr(res_obj, 'redirect_to_payment', False)),
+            'data': data,
+            'count': count,
+            'limit': limit,
+        })
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
 @app.route('/task_video', methods=['GET'])
 def task_video():
     try:
@@ -253,6 +388,9 @@ def task_video():
             'total_scenes': task.get('total_scenes'),
             'phase': task.get('phase'),
             'result_url': task.get('result_url'),
+            'credit_request_id': task.get('credit_request_id'),
+            'credit_verified': task.get('credit_verified'),
+            'credit_verify_message': task.get('credit_verify_message'),
         }
 
         return jsonify(out)
@@ -916,7 +1054,6 @@ def shutdown_app():
 
         # Force-exit the process to ensure the app closes (debug server may keep running)
         _force_exit_later(0.4)
-
         return jsonify({'ok': True})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
@@ -1016,242 +1153,10 @@ def create_images_batch_start():
                 'provider': provider,
                 'future': future,
                 'mapping': mapping,
+                'out_folder_abs': out_folder_abs,
             }
 
         return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
-    except Exception as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 500
-
-
-@app.route('/cancel_create_images_batch', methods=['POST'])
-def cancel_create_images_batch():
-    try:
-        with _CREATE_IMAGES_CANCEL_LOCK:
-            _CREATE_IMAGES_CANCEL.set()
-
-        task_ids = []
-        try:
-            with _ASYNC_IMAGE_BATCHES_LOCK:
-                for b in (_ASYNC_IMAGE_BATCHES or {}).values():
-                    for m in (b or {}).get('mapping') or []:
-                        if m and m.get('task_id'):
-                            task_ids.append(str(m.get('task_id')))
-        except Exception:
-            task_ids = []
-
-        _mark_tasks_cancelled_best_effort(task_ids if task_ids else None)
-
-        try:
-            with _ASYNC_IMAGE_BATCHES_LOCK:
-                _ASYNC_IMAGE_BATCHES.clear()
-        except Exception:
-            pass
-
-        # Close browser quickly to stop all image tabs
-        try:
-            from utils.control_profile import close_global_browser
-            close_global_browser(kind='image')
-        except Exception:
-            pass
-
-        return jsonify({'ok': True})
-    except Exception as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 500
-
-
-@app.route('/cancel_image_task', methods=['POST'])
-def cancel_image_task_api():
-    try:
-        payload = request.get_json(silent=True) or {}
-        task_id = str(payload.get('task_id') or '').strip()
-        if not task_id:
-            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
-
-        _mark_tasks_cancelled_best_effort([task_id])
-
-        # Close ONLY the tab for this image task (run + wait briefly so UI sees immediate close)
-        try:
-            from utils.control_profile import get_global_browser
-            from utils.grok.creat_image import close_task_page
-            gb = get_global_browser('image')
-            if getattr(gb, '_loop', None) is not None:
-                fut = asyncio.run_coroutine_threadsafe(close_task_page(task_id), gb._loop)
-                try:
-                    fut.result(timeout=2)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Cleanup output file (best-effort)
-        try:
-            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
-            if os.path.exists(tasks_file):
-                import json
-                with open(tasks_file, 'r', encoding='utf-8') as f:
-                    raw = f.read()
-                try:
-                    tasks_data = json.loads(raw) if raw else []
-                except Exception:
-                    tasks_data = []
-
-                result_file = ''
-                for it in (tasks_data if isinstance(tasks_data, list) else []):
-                    if str((it or {}).get('id') or '') != task_id:
-                        continue
-                    result_file = str((it or {}).get('result_file') or '').strip()
-                    break
-
-                if result_file and os.path.exists(result_file):
-                    try:
-                        os.remove(result_file)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        return jsonify({'ok': True})
-    except Exception as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 500
-
-
-@app.route('/cancel_video_task', methods=['POST'])
-def cancel_video_task_api():
-    try:
-        payload = request.get_json(silent=True) or {}
-        task_id = str(payload.get('task_id') or '').strip()
-        if not task_id:
-            return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
-
-        _mark_tasks_cancelled_best_effort([task_id])
-
-        # Signal cancellation to video worker
-        try:
-            from utils.control_creat_video import cancel_video_task as _cancel
-            _cancel(task_id)
-        except Exception:
-            pass
-
-        # Close ONLY the tab for this video task (run + wait briefly so UI sees immediate close)
-        try:
-            from utils.control_profile import get_global_browser
-            from utils.grok.creat_video import close_task_page
-            gb = get_global_browser('video')
-            if getattr(gb, '_loop', None) is not None:
-                fut = asyncio.run_coroutine_threadsafe(close_task_page(task_id), gb._loop)
-                try:
-                    fut.result(timeout=2)
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Fallback: find batch folder from in-memory async batches (if tasks.json not updated yet)
-        batch_dir_from_batches = ''
-        try:
-            with _ASYNC_VIDEO_BATCHES_LOCK:
-                for b in (_ASYNC_VIDEO_BATCHES or {}).values():
-                    mapping = (b or {}).get('mapping') or []
-                    found = False
-                    for m in (mapping or []):
-                        if str((m or {}).get('task_id') or '').strip() == task_id:
-                            found = True
-                            break
-                    if not found:
-                        continue
-                    of = str((b or {}).get('out_folder_abs') or '').strip()
-                    if of:
-                        batch_dir_from_batches = of
-                        break
-        except Exception:
-            batch_dir_from_batches = ''
-
-        # Cleanup temp scenes dir / merged file / batch folder (best-effort)
-        try:
-            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
-            if os.path.exists(tasks_file):
-                import json
-                with open(tasks_file, 'r', encoding='utf-8') as f:
-                    raw = f.read()
-                try:
-                    tasks_data = json.loads(raw) if raw else []
-                except Exception:
-                    tasks_data = []
-
-                scenes_dir = ''
-                merged_out = ''
-                batch_dir = ''
-                changed = False
-                for it in (tasks_data if isinstance(tasks_data, list) else []):
-                    if str((it or {}).get('id') or '') != task_id:
-                        continue
-                    scenes_dir = str((it or {}).get('scenes_dir') or '').strip()
-                    merged_out = str((it or {}).get('merged_out') or '').strip()
-                    try:
-                        if scenes_dir:
-                            parent = os.path.dirname(os.path.abspath(scenes_dir))
-                            base = os.path.basename(os.path.normpath(parent))
-                            if base.startswith('video_batch_'):
-                                batch_dir = parent
-                    except Exception:
-                        batch_dir = ''
-
-                    if not batch_dir:
-                        try:
-                            if merged_out:
-                                parent = os.path.dirname(os.path.abspath(merged_out))
-                                base = os.path.basename(os.path.normpath(parent))
-                                if base.startswith('video_batch_'):
-                                    batch_dir = parent
-                        except Exception:
-                            batch_dir = ''
-
-                    if scenes_dir:
-                        it['scenes_dir'] = ''
-                        changed = True
-                    break
-
-                if changed:
-                    with open(tasks_file, 'w', encoding='utf-8') as f:
-                        json.dump(tasks_data, f, ensure_ascii=False, indent=2)
-
-                import shutil
-                if scenes_dir and os.path.isdir(scenes_dir):
-                    shutil.rmtree(scenes_dir, ignore_errors=True)
-                if merged_out and os.path.exists(merged_out):
-                    try:
-                        os.remove(merged_out)
-                    except Exception:
-                        pass
-
-                # Prefer deleting the whole temp batch folder for this task
-                if batch_dir and os.path.isdir(batch_dir):
-                    try:
-                        shutil.rmtree(batch_dir, ignore_errors=True)
-                    except Exception:
-                        pass
-
-                if (not batch_dir) and batch_dir_from_batches and os.path.isdir(batch_dir_from_batches):
-                    try:
-                        base = os.path.basename(os.path.normpath(batch_dir_from_batches))
-                        if base.startswith('video_batch_'):
-                            shutil.rmtree(batch_dir_from_batches, ignore_errors=True)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # If tasks.json read failed, still try deleting batch dir from batches
-        try:
-            if batch_dir_from_batches and os.path.isdir(batch_dir_from_batches):
-                import shutil
-                base = os.path.basename(os.path.normpath(batch_dir_from_batches))
-                if base.startswith('video_batch_'):
-                    shutil.rmtree(batch_dir_from_batches, ignore_errors=True)
-        except Exception:
-            pass
-
-        return jsonify({'ok': True})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
@@ -1290,6 +1195,89 @@ def create_videos_batch_start():
                 pass
         if not (os.path.isabs(out_dir_label) and os.path.isdir(out_dir_label)):
             return jsonify({'ok': False, 'error': 'Vui lòng chọn thư mục lưu kết quả'}), 400
+
+        credit_user_id = ''
+        credit_check = None
+        credit_count = 0
+        credit_limit = 0
+        credit_reserved = 0
+        credit_remaining = 0
+        try:
+            credit_user_id = _read_account_id_from_config()
+        except Exception:
+            credit_user_id = ''
+
+        if credit_user_id:
+            try:
+                from utils.callserver import check_async
+
+                credit_check = _run_coro_blocking(check_async(credit_user_id))
+                data0 = getattr(credit_check, 'data', None)
+                if not isinstance(data0, dict):
+                    data0 = {}
+                try:
+                    credit_count = int(data0.get('count') or 0)
+                except Exception:
+                    credit_count = 0
+                try:
+                    credit_limit = int(data0.get('limit') or 0)
+                except Exception:
+                    credit_limit = 0
+
+                try:
+                    tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                    if os.path.exists(tasks_file):
+                        import json
+                        with open(tasks_file, 'r', encoding='utf-8') as f:
+                            raw = f.read()
+                        try:
+                            tasks_data = json.loads(raw) if raw else []
+                        except Exception:
+                            tasks_data = []
+
+                        for it in (tasks_data if isinstance(tasks_data, list) else []):
+                            try:
+                                st = str((it or {}).get('status') or '').lower()
+                                if st not in ('processing', 'pending'):
+                                    continue
+                                name = str((it or {}).get('name') or '')
+                                if not name.startswith('Tạo video:'):
+                                    continue
+                                credit_reserved += 1
+                            except Exception:
+                                pass
+                except Exception:
+                    credit_reserved = 0
+
+                credit_remaining = max(0, int(credit_limit - credit_count - credit_reserved))
+            except Exception:
+                credit_check = None
+
+        if credit_user_id and credit_check is not None and not bool(getattr(credit_check, 'success', False)):
+            return jsonify({
+                'ok': False,
+                'error': str(getattr(credit_check, 'message', '') or '') or 'Không thể kiểm tra lượt',
+                'redirect_to_payment': bool(getattr(credit_check, 'redirect_to_payment', False)),
+                'count': credit_count,
+                'limit': credit_limit,
+                'reserved': credit_reserved,
+                'remaining': credit_remaining,
+            }), 400
+
+        if credit_user_id and credit_limit > 0:
+            if credit_remaining <= 0:
+                return jsonify({
+                    'ok': False,
+                    'error': 'Đã hết lượt',
+                    'redirect_to_payment': True,
+                    'count': credit_count,
+                    'limit': credit_limit,
+                    'reserved': credit_reserved,
+                    'remaining': credit_remaining,
+                }), 402
+
+            if len(tasks) > credit_remaining:
+                tasks = list(tasks)[:credit_remaining]
 
         from utils.control_profile import init_global_browser, get_global_browser
         from utils.control_script import create_video_task
@@ -1363,7 +1351,15 @@ def create_videos_batch_start():
                 'out_folder_abs': out_folder_abs,
             }
 
-        return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
+        return jsonify({
+            'ok': True,
+            'batch_id': batch_key,
+            'tasks': mapping,
+            'count': credit_count,
+            'limit': credit_limit,
+            'reserved': credit_reserved,
+            'remaining': max(0, credit_remaining - len(mapping)) if (credit_user_id and credit_limit > 0) else None,
+        })
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
@@ -1410,7 +1406,6 @@ def cancel_create_videos_batch():
                         if not scenes_dir:
                             continue
                         try:
-                            # scenes_dir usually like ...\video_batch_xxx\<form>_scenes
                             parent = os.path.dirname(os.path.abspath(scenes_dir))
                             base = os.path.basename(os.path.normpath(parent))
                             if base.startswith('video_batch_'):
@@ -1462,7 +1457,6 @@ def cancel_create_videos_batch():
                 p = str(folder or '').strip()
                 if not p:
                     continue
-                # Safety: only remove folders that look like our batch folders
                 base = os.path.basename(os.path.normpath(p))
                 if not base.startswith('video_batch_'):
                     continue

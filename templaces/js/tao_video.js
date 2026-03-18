@@ -347,25 +347,24 @@ function _setVideoResultLink(videoIndex, url) {
                 if (rowEl) rowEl.dataset.effectKey = effect_key;
             }
 
-            const musicSelect = document.getElementById('musicSelect');
+            const musicInput = document.getElementById('musicSelect');
             const randomMusicCb = document.getElementById('random-music-checkbox');
             const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
 
             let music_url = '';
             let music_name = '';
-            if (musicSelect) {
-                const opts = Array.from(musicSelect.options || []);
-                const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
-                if (useRandomMusic && selectable.length > 0) {
+            if (useRandomMusic && Array.isArray(window.__musicList) && window.__musicList.length > 0) {
+                const selectable = window.__musicList.filter((x) => x && String(x.name || '').trim());
+                if (selectable.length > 0) {
                     const pick = selectable[Math.floor(Math.random() * selectable.length)];
-                    music_url = String(pick.value || '').trim();
-                    music_name = String(pick.textContent || '').trim();
-                } else {
-                    const opt = musicSelect.options[musicSelect.selectedIndex];
-                    if (opt && String(opt.value || '').trim()) {
-                        music_url = String(opt.value || '').trim();
-                        music_name = String(opt.textContent || '').trim();
-                    }
+                    music_name = String(pick.name || '').trim();
+                    music_url = String(pick.url || '').trim();
+                }
+            } else if (musicInput) {
+                const v = String(musicInput.value || '').trim();
+                if (v && !v.toLowerCase().startsWith('none')) {
+                    music_name = v;
+                    music_url = (window.__musicUrlByName && window.__musicUrlByName[v]) ? String(window.__musicUrlByName[v] || '').trim() : '';
                 }
             }
 
@@ -746,6 +745,23 @@ function initTaoVideoPage() {
     const displayArea = document.getElementById('video-display-area');
     if (!addBtn || !displayArea) return;
 
+    try {
+        const musicInput = document.getElementById('musicSelect');
+        const randomMusicCb = document.getElementById('random-music-checkbox');
+        if (musicInput && randomMusicCb) {
+            const syncRandomState = () => {
+                const v = String(musicInput.value || '').trim();
+                const picked = !!(v && !v.toLowerCase().startsWith('none'));
+                if (picked) {
+                    randomMusicCb.checked = false;
+                }
+            };
+            musicInput.addEventListener('input', syncRandomState);
+            musicInput.addEventListener('change', syncRandomState);
+            try { syncRandomState(); } catch (e) {}
+        }
+    } catch (e) {}
+
     window.getVideoTaskIdsFromUI = () => {
         try {
             const rows = Array.from(displayArea.querySelectorAll('.video-row'));
@@ -921,25 +937,24 @@ function initTaoVideoPage() {
             if (Number.isFinite(n) && n > 0) max_tabs = n;
         }
 
-        const musicSelect = document.getElementById('musicSelect');
+        const musicInput = document.getElementById('musicSelect');
         const randomMusicCb = document.getElementById('random-music-checkbox');
         const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
 
         let music_url = '';
         let music_name = '';
-        if (musicSelect) {
-            const opts = Array.from(musicSelect.options || []);
-            const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
-            if (useRandomMusic && selectable.length > 0) {
+        if (useRandomMusic && Array.isArray(window.__musicList) && window.__musicList.length > 0) {
+            const selectable = window.__musicList.filter((x) => x && String(x.name || '').trim());
+            if (selectable.length > 0) {
                 const pick = selectable[Math.floor(Math.random() * selectable.length)];
-                music_url = String(pick.value || '').trim();
-                music_name = String(pick.textContent || '').trim();
-            } else {
-                const opt = musicSelect.options[musicSelect.selectedIndex];
-                if (opt && String(opt.value || '').trim()) {
-                    music_url = String(opt.value || '').trim();
-                    music_name = String(opt.textContent || '').trim();
-                }
+                music_name = String(pick.name || '').trim();
+                music_url = String(pick.url || '').trim();
+            }
+        } else if (musicInput) {
+            const v = String(musicInput.value || '').trim();
+            if (v && !v.toLowerCase().startsWith('none')) {
+                music_name = v;
+                music_url = (window.__musicUrlByName && window.__musicUrlByName[v]) ? String(window.__musicUrlByName[v] || '').trim() : '';
             }
         }
 
@@ -949,6 +964,9 @@ function initTaoVideoPage() {
         _setVideoProgress(idx, 0, null, null);
         _setVideoSceneStatus(idx, '');
         _setVideoResultLink(idx, '');
+        try {
+            delete rowEl.dataset.creditRefreshed;
+        } catch (e) {}
 
         _setRowCreateBtnState(idx, true);
         _setVideoSceneStatus(idx, 'Đang tạo cảnh 1');
@@ -971,6 +989,23 @@ function initTaoVideoPage() {
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data || data.ok !== true) {
                 const msg = data && data.error ? data.error : 'Không thể bắt đầu tạo video';
+                try {
+                    if (data && data.redirect_to_payment && typeof window.showPaymentOverlay === 'function') {
+                        window.showPaymentOverlay(msg);
+                    }
+                } catch (e) {}
+
+                // best-effort refresh credit
+                try {
+                    const uid = (window.configData && window.configData.ACCOUNT_ID) ? String(window.configData.ACCOUNT_ID || '').trim() : '';
+                    if (uid) {
+                        await fetch('/api/check', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: uid }),
+                        }).catch(() => null);
+                    }
+                } catch (e) {}
                 if (typeof window.showSuccessOverlay === 'function') {
                     window.showSuccessOverlay(msg);
                 } else {
@@ -1016,6 +1051,22 @@ function initTaoVideoPage() {
         _createVideosRunning = false;
     };
 
+    const _refreshCreditThrottled = async () => {
+        try {
+            const now = Date.now();
+            if (window.__creditRefreshInFlight) return;
+            if (window.__lastCreditRefreshTs && (now - window.__lastCreditRefreshTs) < 1500) return;
+            window.__creditRefreshInFlight = true;
+            window.__lastCreditRefreshTs = now;
+            if (typeof window.refreshCreditAsync === 'function') {
+                await window.refreshCreditAsync();
+            }
+        } catch (e) {
+        } finally {
+            window.__creditRefreshInFlight = false;
+        }
+    };
+
     const _pollOnce = async () => {
         if (!_createVideosPending) return;
         const ids = Object.keys(_createVideosPending);
@@ -1044,9 +1095,44 @@ function initTaoVideoPage() {
                 const totalScenes = body.total_scenes;
                 const phase = String(body.phase || '');
                 const resultUrl = String(body.result_url || '');
+                const creditVerified = body.credit_verified;
+                const creditVerifyMessage = String(body.credit_verify_message || '');
+
+                // Per-task credit refresh: as soon as verify result is available, refresh UI once for this row.
+                try {
+                    if (rowEl && String(rowEl.dataset.creditRefreshed || '') !== '1') {
+                        if (creditVerified !== undefined && creditVerified !== null) {
+                            rowEl.dataset.creditRefreshed = '1';
+                            await _refreshCreditThrottled();
+                            if (creditVerified === false) {
+                                const msg = creditVerifyMessage ? creditVerifyMessage : 'Verify thất bại';
+                                _setVideoSceneStatus(videoIndex, `Xác nhận lượt lỗi: ${msg}`);
+                            }
+                        }
+                    }
+                } catch (e) {}
 
                 if (progress !== undefined && progress !== null) {
                     _setVideoProgress(videoIndex, progress, sceneIndex, totalScenes);
+                }
+
+                if (phase === 'verifying') {
+                    _setVideoSceneStatus(videoIndex, 'Đang xác nhận lượt');
+                    if (resultUrl) {
+                        _setVideoResultLink(videoIndex, resultUrl);
+                        if (rowEl) rowEl.dataset.resultUrl = resultUrl;
+                        const playBtn = document.getElementById(`video-play-btn-${videoIndex}`);
+                        if (playBtn) playBtn.style.display = 'flex';
+                    }
+                    return;
+                }
+
+                if (phase === 'verified') {
+                    _setVideoSceneStatus(videoIndex, 'Đã xác nhận lượt');
+                }
+
+                if (phase === 'downloading') {
+                    _setVideoSceneStatus(videoIndex, 'Đang tải video');
                 }
 
                 if (status === 'completed') {
@@ -1057,8 +1143,12 @@ function initTaoVideoPage() {
                         const playBtn = document.getElementById(`video-play-btn-${videoIndex}`);
                         if (playBtn) playBtn.style.display = 'flex';
                     }
-                    _setRowCreateBtnState(videoIndex, false);
-                    delete _createVideosPending[taskId];
+
+                    // Only stop polling when credit verification has been written.
+                    if (creditVerified !== undefined && creditVerified !== null) {
+                        _setRowCreateBtnState(videoIndex, false);
+                        delete _createVideosPending[taskId];
+                    }
                     return;
                 }
 
@@ -1145,25 +1235,24 @@ function initTaoVideoPage() {
                 if (Number.isFinite(n) && n > 0) max_tabs = n;
             }
 
-            const musicSelect = document.getElementById('musicSelect');
+            const musicInput = document.getElementById('musicSelect');
             const randomMusicCb = document.getElementById('random-music-checkbox');
             const useRandomMusic = !!(randomMusicCb && randomMusicCb.checked);
 
             let music_url = '';
             let music_name = '';
-            if (musicSelect) {
-                const opts = Array.from(musicSelect.options || []);
-                const selectable = opts.slice(1).filter(o => o && String(o.value || '').trim());
-                if (useRandomMusic && selectable.length > 0) {
+            if (useRandomMusic && Array.isArray(window.__musicList) && window.__musicList.length > 0) {
+                const selectable = window.__musicList.filter((x) => x && String(x.name || '').trim());
+                if (selectable.length > 0) {
                     const pick = selectable[Math.floor(Math.random() * selectable.length)];
-                    music_url = String(pick.value || '').trim();
-                    music_name = String(pick.textContent || '').trim();
-                } else {
-                    const opt = musicSelect.options[musicSelect.selectedIndex];
-                    if (opt && String(opt.value || '').trim()) {
-                        music_url = String(opt.value || '').trim();
-                        music_name = String(opt.textContent || '').trim();
-                    }
+                    music_name = String(pick.name || '').trim();
+                    music_url = String(pick.url || '').trim();
+                }
+            } else if (musicInput) {
+                const v = String(musicInput.value || '').trim();
+                if (v && !v.toLowerCase().startsWith('none')) {
+                    music_name = v;
+                    music_url = (window.__musicUrlByName && window.__musicUrlByName[v]) ? String(window.__musicUrlByName[v] || '').trim() : '';
                 }
             }
 
@@ -1198,6 +1287,9 @@ function initTaoVideoPage() {
                 _setVideoProgress(idx, 0, null, null);
                 _setVideoSceneStatus(idx, '');
                 _setVideoResultLink(idx, '');
+                try {
+                    delete rowEl.dataset.creditRefreshed;
+                } catch (e) {}
             });
 
             _setAllRowCreateBtnState(true);
@@ -1223,6 +1315,23 @@ function initTaoVideoPage() {
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || !data || data.ok !== true) {
                     const msg = data && data.error ? data.error : 'Không thể bắt đầu tạo video';
+                    try {
+                        if (data && data.redirect_to_payment && typeof window.showPaymentOverlay === 'function') {
+                            window.showPaymentOverlay(msg);
+                        }
+                    } catch (e) {}
+
+                    // best-effort refresh credit
+                    try {
+                        const uid = (window.configData && window.configData.ACCOUNT_ID) ? String(window.configData.ACCOUNT_ID || '').trim() : '';
+                        if (uid) {
+                            await fetch('/api/check', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ user_id: uid }),
+                            }).catch(() => null);
+                        }
+                    } catch (e) {}
                     if (typeof window.showSuccessOverlay === 'function') {
                         window.showSuccessOverlay(msg);
                     } else {

@@ -207,46 +207,50 @@ async function saveToConfig(data) {
     }
 }
 
+
+function setSelectByValueOrText(selectEl, desired) {
+    try {
+        if (!selectEl) return;
+        if (desired === undefined || desired === null) return;
+
+        const desiredStr = String(desired);
+        const desiredNum = Number(desiredStr);
+        const hasNumeric = Number.isFinite(desiredNum) && desiredStr.trim() !== '';
+
+        // 1) Match by option.value
+        for (let i = 0; i < selectEl.options.length; i++) {
+            if (String(selectEl.options[i].value) === desiredStr) {
+                selectEl.selectedIndex = i;
+                return;
+            }
+        }
+
+        // 2) Match by option.textContent contains desired
+        for (let i = 0; i < selectEl.options.length; i++) {
+            const text = String(selectEl.options[i].textContent || '');
+            if (text.toLowerCase().includes(desiredStr.toLowerCase())) {
+                selectEl.selectedIndex = i;
+                return;
+            }
+        }
+
+        // 3) Backward-compat: if stored as index
+        if (hasNumeric) {
+            const idx = Math.max(0, Math.min(selectEl.options.length - 1, Math.floor(desiredNum)));
+            selectEl.selectedIndex = idx;
+        }
+    } catch (e) {}
+}
+
+
 async function loadConfig() {
     try {
         const response = await fetch('/config/config.json');
         if (!response.ok) {
-            throw new Error('Không thể tải file config.json');
+            console.error('Không thể load config.json');
+            return;
         }
-
         const data = await response.json();
-
-        const setSelectByValueOrText = (selectEl, desired) => {
-            if (!selectEl) return;
-            if (desired === undefined || desired === null) return;
-
-            const desiredStr = String(desired);
-            const desiredNum = Number(desiredStr);
-            const hasNumeric = Number.isFinite(desiredNum) && desiredStr.trim() !== '';
-
-            // 1) Match by option.value
-            for (let i = 0; i < selectEl.options.length; i++) {
-                if (String(selectEl.options[i].value) === desiredStr) {
-                    selectEl.selectedIndex = i;
-                    return;
-                }
-            }
-
-            // 2) Match by option.textContent contains desired
-            for (let i = 0; i < selectEl.options.length; i++) {
-                const text = String(selectEl.options[i].textContent || '');
-                if (text.toLowerCase().includes(desiredStr.toLowerCase())) {
-                    selectEl.selectedIndex = i;
-                    return;
-                }
-            }
-
-            // 3) Backward-compat: if stored as index
-            if (hasNumeric) {
-                const idx = Math.max(0, Math.min(selectEl.options.length - 1, Math.floor(desiredNum)));
-                selectEl.selectedIndex = idx;
-            }
-        };
 
         const versionElements = document.querySelectorAll('.app-version');
         versionElements.forEach(el => {
@@ -257,6 +261,13 @@ async function loadConfig() {
         if (userIdElement) {
             userIdElement.innerText = data.ACCOUNT_ID;
         }
+
+        window.configData = data;
+
+        // Auto-check account credit via local app API (server will call utils/callserver.py)
+        try {
+            await refreshCreditAsync();
+        } catch (_) {}
 
         // Sidebar model select (UI text may not match MODEL_AI string, so only best-effort)
         const sidebarModelSelect = document.querySelector('#sidebar .group-box select');
@@ -277,14 +288,47 @@ async function loadConfig() {
         if (cloneVideoApiKey) {
             cloneVideoApiKey.value = data.API_CHAT || data.API_KEY || '';
         }
-
-        window.configData = data;
     } catch (error) {
         console.error('Lỗi loading config:', error);
         const versionElements = document.querySelectorAll('.app-version');
         versionElements.forEach(el => el.innerText = 'Error');
     }
 }
+
+
+async function refreshCreditAsync() {
+    try {
+        const uid = (window.configData && window.configData.ACCOUNT_ID) ? String(window.configData.ACCOUNT_ID || '').trim() : '';
+        if (!uid) return null;
+
+        const res = await fetch('/api/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
+            body: JSON.stringify({ user_id: uid }),
+        });
+        const body = await res.json().catch(() => ({}));
+
+        const count = (body && typeof body.count !== 'undefined') ? body.count : 0;
+        const limit = (body && typeof body.limit !== 'undefined') ? body.limit : 0;
+        const creditEls = document.querySelectorAll('.credit-value');
+        if (creditEls && creditEls.length) {
+            creditEls.forEach((el) => {
+                try {
+                    el.innerHTML = `<i class="fas fa-coins"></i> ${count}/${limit}`;
+                } catch (e) {}
+            });
+        }
+
+        return body;
+    } catch (e) {
+        return null;
+    }
+}
+
+try {
+    window.refreshCreditAsync = refreshCreditAsync;
+} catch (e) {}
 
 function copyId(event) {
     if (event) event.stopPropagation();
@@ -494,6 +538,31 @@ function showProcessingOverlay(message) {
     document.body.appendChild(overlay);
 }
 
+
+function closePaymentOverlay() {
+    const el = document.getElementById('paymentOverlay');
+    if (!el) return;
+    el.style.display = 'none';
+}
+
+
+function showPaymentOverlay(message) {
+    const el = document.getElementById('paymentOverlay');
+    if (!el) return;
+
+    const msgEl = document.getElementById('paymentOverlayMessage');
+    if (msgEl) {
+        msgEl.textContent = message || 'Đã hết lượt. Vui lòng thanh toán để tiếp tục.';
+    }
+
+    el.style.display = 'flex';
+}
+
+try {
+    window.showPaymentOverlay = showPaymentOverlay;
+    window.closePaymentOverlay = closePaymentOverlay;
+} catch (e) {}
+
 function closeProcessingOverlay() {
     const overlays = document.querySelectorAll('div[style*="position: fixed"]');
     overlays.forEach(overlay => {
@@ -511,18 +580,15 @@ function closeProcessingOverlay() {
 let pendingDeleteMusic = null;
 
 function deleteSelectedMusic() {
-    const musicSelect = document.getElementById('musicSelect');
-    if (!musicSelect) return;
+    const musicInput = document.getElementById('musicSelect');
+    if (!musicInput) return;
 
-    const idx = musicSelect.selectedIndex;
-    if (idx <= 0) {
+    const fileName = String(musicInput.value || '').trim();
+    if (!fileName || fileName.toLowerCase().startsWith('none')) {
         return;
     }
 
-    const opt = musicSelect.options[idx];
-    const fileName = opt.textContent;
-
-    pendingDeleteMusic = { index: idx, name: fileName };
+    pendingDeleteMusic = { name: fileName };
 
     const msgEl = document.getElementById('deleteMusicMessage');
     const btnsEl = document.getElementById('deleteMusicButtons');
@@ -547,10 +613,11 @@ function closeDeleteMusicModal() {
 }
 
 function confirmDeleteMusic() {
-    const musicSelect = document.getElementById('musicSelect');
-    if (!musicSelect || !pendingDeleteMusic) return;
+    const musicInput = document.getElementById('musicSelect');
+    const musicList = document.getElementById('musicSelectList');
+    if (!musicInput || !musicList || !pendingDeleteMusic) return;
 
-    const { index, name } = pendingDeleteMusic;
+    const { name } = pendingDeleteMusic;
 
     fetch('/deletemusic', {
         method: 'POST',
@@ -572,10 +639,30 @@ function confirmDeleteMusic() {
                 return;
             }
 
-            if (index < musicSelect.options.length) {
-                musicSelect.remove(index);
-            }
-            musicSelect.selectedIndex = 0;
+            try {
+                const opts = Array.from(musicList.querySelectorAll('option'));
+                opts.forEach((opt) => {
+                    const v = String(opt.getAttribute('value') || '').trim();
+                    if (v === name) {
+                        try { musicList.removeChild(opt); } catch (e) {}
+                    }
+                });
+            } catch (e) {}
+
+            try {
+                if (window.__musicUrlByName && window.__musicUrlByName[name]) {
+                    delete window.__musicUrlByName[name];
+                }
+                if (Array.isArray(window.__musicList)) {
+                    window.__musicList = window.__musicList.filter((x) => x && String(x.name || '').trim() !== name);
+                }
+            } catch (e) {}
+
+            try {
+                if (String(musicInput.value || '').trim() === name) {
+                    musicInput.value = '';
+                }
+            } catch (e) {}
 
             if (msgEl) {
                 msgEl.textContent = 'Đã xóa file nhạc ✔';
@@ -605,26 +692,33 @@ async function loadMusicList() {
     try {
         const res = await fetch('/listmusic');
         const list = await res.json().catch(() => []);
-        const musicSelect = document.getElementById('musicSelect');
-        if (!musicSelect) return;
+        const musicList = document.getElementById('musicSelectList');
+        if (!musicList) return;
 
-        let first = musicSelect.options[0];
-        if (!first) {
-            first = document.createElement('option');
-            first.textContent = 'None (Mặc định)';
-            musicSelect.appendChild(first);
-        }
-        first.value = '';
+        window.__musicList = Array.isArray(list) ? list : [];
+        window.__musicUrlByName = {};
+        (window.__musicList || []).forEach((it) => {
+            try {
+                const n = String(it && it.name ? it.name : '').trim();
+                const u = String(it && it.url ? it.url : '').trim();
+                if (n) window.__musicUrlByName[n] = u;
+            } catch (e) {}
+        });
 
-        while (musicSelect.options.length > 1) {
-            musicSelect.remove(1);
-        }
+        try {
+            musicList.innerHTML = '';
+        } catch (e) {}
 
-        (Array.isArray(list) ? list : []).forEach(item => {
+        const optNone = document.createElement('option');
+        optNone.setAttribute('value', 'None (Mặc định)');
+        musicList.appendChild(optNone);
+
+        (window.__musicList || []).forEach((item) => {
+            const n = String(item && item.name ? item.name : '').trim();
+            if (!n) return;
             const opt = document.createElement('option');
-            opt.value = item.url;
-            opt.textContent = item.name;
-            musicSelect.appendChild(opt);
+            opt.setAttribute('value', n);
+            musicList.appendChild(opt);
         });
     } catch (err) {
         console.error('Không load được danh sách nhạc:', err);
@@ -636,13 +730,13 @@ function initMusicBindings() {
     const previewBtn = document.querySelector('.btn-preview');
     if (previewBtn) {
         previewBtn.onclick = function () {
-            const musicSelect = document.getElementById('musicSelect');
-            if (!musicSelect) return;
-
-            const opt = musicSelect.options[musicSelect.selectedIndex];
-            if (!opt || !opt.value) return;
-
-            openAudioOverlay(opt.value, opt.textContent);
+            const musicInput = document.getElementById('musicSelect');
+            if (!musicInput) return;
+            const name = String(musicInput.value || '').trim();
+            if (!name || name.toLowerCase().startsWith('none')) return;
+            const url = (window.__musicUrlByName && window.__musicUrlByName[name]) ? window.__musicUrlByName[name] : '';
+            if (!url) return;
+            openAudioOverlay(url, name);
         };
     }
 
@@ -680,13 +774,24 @@ function initMusicBindings() {
                     }
 
                     const musicSelect = document.getElementById('musicSelect');
-                    if (!musicSelect) return;
+                    const musicList = document.getElementById('musicSelectList');
+                    if (!musicSelect || !musicList) return;
+
+                    const name = String(body.name || '').trim();
+                    const url = String(body.url || '').trim();
+                    if (!name) return;
+
+                    try {
+                        window.__musicUrlByName = window.__musicUrlByName || {};
+                        window.__musicUrlByName[name] = url;
+                        window.__musicList = Array.isArray(window.__musicList) ? window.__musicList : [];
+                        window.__musicList.push({ name, url });
+                    } catch (e) {}
 
                     const opt = document.createElement('option');
-                    opt.value = body.url;
-                    opt.textContent = body.name;
-                    musicSelect.appendChild(opt);
-                    musicSelect.value = body.url;
+                    opt.setAttribute('value', name);
+                    musicList.appendChild(opt);
+                    musicSelect.value = name;
 
                     addMusicInput.value = '';
                 })

@@ -1108,27 +1108,20 @@ function askDesiredMusicName(defaultName) {
         };
     });
 }
-
-
-// ===============================
 // XÓA FILE NHẠC ĐANG CHỌN (CÓ XÁC NHẬN)
 // ===============================
 let pendingDeleteMusic = null;
 
 function deleteSelectedMusic() {
-    const musicSelect = document.getElementById('musicSelect');
-    if (!musicSelect) return;
+    const musicInput = document.getElementById('musicSelect');
+    if (!musicInput) return;
 
-    const idx = musicSelect.selectedIndex;
-    if (idx <= 0) {
-        // 0 là "None (Mặc định)" hoặc chưa chọn
+    const fileName = String(musicInput.value || '').trim();
+    if (!fileName || fileName.toLowerCase().startsWith('none')) {
         return;
     }
 
-    const opt = musicSelect.options[idx];
-    const fileName = opt.textContent;
-
-    pendingDeleteMusic = { index: idx, name: fileName };
+    pendingDeleteMusic = { name: fileName };
 
     const msgEl = document.getElementById('deleteMusicMessage');
     const btnsEl = document.getElementById('deleteMusicButtons');
@@ -1153,10 +1146,11 @@ function closeDeleteMusicModal() {
 }
 
 function confirmDeleteMusic() {
-    const musicSelect = document.getElementById('musicSelect');
-    if (!musicSelect || !pendingDeleteMusic) return;
+    const musicInput = document.getElementById('musicSelect');
+    const musicList = document.getElementById('musicSelectList');
+    if (!musicInput || !musicList || !pendingDeleteMusic) return;
 
-    const { index, name } = pendingDeleteMusic;
+    const { name } = pendingDeleteMusic;
 
     fetch('/deletemusic', {
         method: 'POST',
@@ -1178,11 +1172,30 @@ function confirmDeleteMusic() {
                 return;
             }
 
-            // Xóa option khỏi select
-            if (index < musicSelect.options.length) {
-                musicSelect.remove(index);
-            }
-            musicSelect.selectedIndex = 0;
+            try {
+                const opts = Array.from(musicList.querySelectorAll('option'));
+                opts.forEach((opt) => {
+                    const v = String(opt.getAttribute('value') || '').trim();
+                    if (v === name) {
+                        try { musicList.removeChild(opt); } catch (e) {}
+                    }
+                });
+            } catch (e) {}
+
+            try {
+                if (window.__musicUrlByName && window.__musicUrlByName[name]) {
+                    delete window.__musicUrlByName[name];
+                }
+                if (Array.isArray(window.__musicList)) {
+                    window.__musicList = window.__musicList.filter((x) => x && String(x.name || '').trim() !== name);
+                }
+            } catch (e) {}
+
+            try {
+                if (String(musicInput.value || '').trim() === name) {
+                    musicInput.value = '';
+                }
+            } catch (e) {}
 
             // Hiển thị "đã xóa" ngay trong overlay
             if (msgEl) {
