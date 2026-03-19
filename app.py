@@ -1450,6 +1450,7 @@ def pick_result_folder():
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
+                    **(lambda: (__import__('utils.control_profile', fromlist=['_win_subprocess_kwargs'])._win_subprocess_kwargs() if os.name == 'nt' else {}))(),
                 )
                 picked = (r.stdout or '').strip()
                 if picked:

@@ -274,7 +274,7 @@ def merge_video_clips(
         out_path,
     ]
 
-    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
     return out_path
 
 
@@ -326,7 +326,7 @@ def transcode_video_handler():
     ]
 
     try:
-        subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(cmd, cwd=TRANSCODE_DIR, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
     except FileNotFoundError:
         return jsonify({"ok": False, "error": "ffmpeg not found"}), 500
     except subprocess.CalledProcessError as exc:
@@ -376,7 +376,7 @@ def extract_frame_handler():
         ]
 
         try:
-            subprocess.run(cmd, cwd=tmpdir, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd, cwd=tmpdir, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_win_subprocess_kwargs())
         except FileNotFoundError:
             return jsonify({"ok": False, "error": "ffmpeg not found"}), 500
         except subprocess.CalledProcessError as exc:

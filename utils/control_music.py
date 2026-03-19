@@ -3,6 +3,25 @@ import shutil
 import subprocess
 from typing import List, Dict, Tuple
 
+
+def _win_subprocess_kwargs():
+    if os.name != 'nt':
+        return {}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+    except Exception:
+        si = None
+    kw = {}
+    try:
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    except Exception:
+        pass
+    if si is not None:
+        kw['startupinfo'] = si
+    return kw
+
 import sys
 
 from flask import jsonify, send_from_directory, request
@@ -210,7 +229,7 @@ def _process_source_to_music(
 
         try:
             result = subprocess.run(
-                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, **_win_subprocess_kwargs()
             )
         except FileNotFoundError:
             return False, "ffmpeg not found in PATH", 500

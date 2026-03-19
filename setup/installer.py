@@ -125,6 +125,7 @@ $Shortcut.WorkingDirectory = "{ps_escape(working_dir)}"
         check=True,
         capture_output=True,
         text=True,
+        **_win_subprocess_kwargs(),
     )
 
 
@@ -133,6 +134,25 @@ def get_base_dir_for_assets() -> str:
     if hasattr(sys, "_MEIPASS"):
         return sys._MEIPASS  # type: ignore[attr-defined]
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def _win_subprocess_kwargs():
+    if os.name != 'nt':
+        return {}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0
+    except Exception:
+        si = None
+    kw = {}
+    try:
+        kw['creationflags'] = subprocess.CREATE_NO_WINDOW
+    except Exception:
+        pass
+    if si is not None:
+        kw['startupinfo'] = si
+    return kw
 
 
 class InstallerUI(tk.Tk):
@@ -542,6 +562,7 @@ class InstallerUI(tk.Tk):
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    **_win_subprocess_kwargs(),
                 )
 
                 # đọc output để tránh đầy buffer, nhưng KHÔNG hiển thị
