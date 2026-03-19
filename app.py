@@ -138,6 +138,10 @@ _ASYNC_VIDEO_BATCHES: Dict[str, Any] = {}
 _ASYNC_SINGLE_VIDEO_TASKS_LOCK = threading.Lock()
 _ASYNC_SINGLE_VIDEO_TASKS: Dict[str, Any] = {}
 
+# Client heartbeat: used to shutdown the server when the UI window is closed
+_LAST_CLIENT_PING_TS = 0.0
+_CLIENT_PING_LOCK = threading.Lock()
+
 
 def _force_exit_later(delay_sec: float = 0.4) -> None:
     try:
@@ -1419,18 +1423,8 @@ def reset_browser_profile():
 @app.route('/open_grok_login', methods=['POST'])
 def open_grok_login():
     try:
-        from utils.control_profile import _GLOBAL_BROWSER, init_global_browser, run_global
-
-        async def _open():
-            init_global_browser(kind='default')
-            ctx = await _GLOBAL_BROWSER.get_context_async()
-            if ctx is None:
-                raise RuntimeError('Global browser context is not initialized')
-            page = await ctx.new_page()
-            await page.goto('https://grok.com/', timeout=60000)
-            return True
-
-        run_global(_open(), timeout=60)
+        from utils.control_profile import open_profile
+        open_profile('grok')
         return jsonify({'ok': True})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
@@ -1439,6 +1433,30 @@ def open_grok_login():
 @app.route('/pick_result_folder', methods=['POST'])
 def pick_result_folder():
     try:
+        # Prefer Windows native folder picker via PowerShell/.NET to avoid Tk fullscreen flash
+        try:
+            if os.name == 'nt':
+                ps_cmd = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$dlg.Description = 'Chọn thư mục lưu kết quả'; "
+                    "$dlg.ShowNewFolderButton = $true; "
+                    "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
+                    "  Write-Output $dlg.SelectedPath "
+                    "}"
+                )
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                picked = (r.stdout or '').strip()
+                if picked:
+                    return jsonify({'ok': True, 'path': os.path.abspath(picked)})
+        except Exception:
+            pass
+
         try:
             import tkinter as tk
             from tkinter import filedialog
@@ -1449,7 +1467,24 @@ def pick_result_folder():
         root.withdraw()
         root.attributes('-topmost', True)
 
-        path = filedialog.askdirectory()
+        try:
+            root.geometry('1x1+0+0')
+            try:
+                root.attributes('-alpha', 0.0)
+            except Exception:
+                pass
+            try:
+                root.iconify()
+            except Exception:
+                pass
+            root.update_idletasks()
+        except Exception:
+            pass
+
+        try:
+            path = filedialog.askdirectory(parent=root)
+        except Exception:
+            path = filedialog.askdirectory()
 
         try:
             root.destroy()
@@ -1670,7 +1705,7 @@ def create_images_batch():
     try:
         payload = request.get_json(silent=True) or {}
         provider = str(payload.get('provider') or '').strip()
-        out_dir_label = str(payload.get('out_dir_label') or '').strip()
+        out_dir_label = str(payload.get('out_dir_label') or '')
         max_tabs = payload.get('max_tabs', 5)
         ratio = str(payload.get('ratio') or '9:16').strip()
         tasks = payload.get('tasks')
@@ -1820,12 +1855,53 @@ def cancel_create_images_batch():
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
+@app.route('/client_ping', methods=['POST'])
+def client_ping():
+    """Client heartbeat from the UI. When UI closes, heartbeat stops and watchdog will exit the process."""
+    try:
+        import time
+        with _CLIENT_PING_LOCK:
+            global _LAST_CLIENT_PING_TS
+            _LAST_CLIENT_PING_TS = float(time.time())
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
 import webbrowser
 import threading
 
 def open_browser():
     webbrowser.open("http://127.0.0.1:5000")
 
+
+def _start_client_watchdog(timeout_sec: float = 12.0, check_interval: float = 2.0) -> None:
+    def _loop():
+        import time
+        while True:
+            try:
+                time.sleep(float(check_interval))
+                with _CLIENT_PING_LOCK:
+                    last = float(_LAST_CLIENT_PING_TS or 0.0)
+                if last <= 0:
+                    continue
+                if (time.time() - last) > float(timeout_sec):
+                    try:
+                        _force_exit_later(0.4)
+                    finally:
+                        return
+            except Exception:
+                # Never crash watchdog
+                pass
+
+    try:
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     threading.Timer(1.0, open_browser).start()
+    _start_client_watchdog(timeout_sec=12.0, check_interval=2.0)
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)

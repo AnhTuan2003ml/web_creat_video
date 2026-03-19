@@ -387,7 +387,28 @@ async function generateScript() {
 
         if (!res.ok || !body.ok) {
             console.error('Tạo kịch bản thất bại:', body.error);
-            alert('Không thể tạo kịch bản: ' + (body.error || 'Lỗi không xác định'));
+
+            const errMsg = String(body.error || '').trim();
+            const isEmptyScenes = errMsg.toLowerCase().includes('empty scenes');
+            const isMissingKey = errMsg.toLowerCase().includes('missing api key');
+            const isInvalidKey = errMsg.toLowerCase().includes('invalid') && errMsg.toLowerCase().includes('key');
+
+            if (isEmptyScenes || isMissingKey || isInvalidKey) {
+                const msg = 'API key đã hết hạn hoặc không hợp lệ. Vui lòng cấp lại API key để tạo kịch bản.';
+                if (typeof window.showSuccessOverlay === 'function') {
+                    window.showSuccessOverlay(msg);
+                } else {
+                    alert(msg);
+                }
+                try { apiKeyInput && apiKeyInput.focus(); } catch (_) {}
+                return;
+            }
+
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Không thể tạo kịch bản: ' + (errMsg || 'Lỗi không xác định'));
+            } else {
+                alert('Không thể tạo kịch bản: ' + (errMsg || 'Lỗi không xác định'));
+            }
             return;
         }
 

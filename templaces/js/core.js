@@ -17,6 +17,7 @@ async function loadWorkspace(page) {
         targetContent.style.display = 'block';
         return;
     }
+
     // Nếu chưa có thì load mới và append vào root
     try {
         const res = await fetch(`/templaces/html/${page}`);
@@ -31,6 +32,27 @@ async function loadWorkspace(page) {
     } catch (err) {
         console.error('Không thể tải workspace:', err);
     }
+}
+
+function initClientHeartbeat() {
+    if (window.__clientHeartbeatStarted) return;
+    window.__clientHeartbeatStarted = true;
+
+    const pingOnce = async () => {
+        try {
+            await fetch('/client_ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                cache: 'no-store',
+                body: JSON.stringify({ ts: Date.now() }),
+                keepalive: true,
+            });
+        } catch (_) {
+        }
+    };
+
+    pingOnce();
+    window.__clientHeartbeatTimer = setInterval(pingOnce, 4000);
 }
 
 function initExitAppBindings() {
@@ -95,6 +117,26 @@ function initExitAppBindings() {
 
     if (!window.__exitBeforeUnloadBound) {
         window.__exitBeforeUnloadBound = true;
+
+        if (!window.__exitPagehideBound) {
+            window.__exitPagehideBound = true;
+            window.addEventListener('pagehide', function () {
+                try {
+                    if (window.__shutdownRequested) return;
+                    if (!window.__pendingExitApp) return;
+
+                    const taskIds = (typeof window.getVideoTaskIdsFromUI === 'function') ? window.getVideoTaskIdsFromUI() : [];
+                    const hasTasks = Array.isArray(taskIds) && taskIds.length > 0;
+                    const action = hasTasks ? 'discard' : 'shutdown';
+
+                    if (navigator && navigator.sendBeacon) {
+                        navigator.sendBeacon('/exit_app', new Blob([JSON.stringify({ action, task_ids: hasTasks ? taskIds : [] })], { type: 'application/json' }));
+                    }
+                } catch (_) {
+                }
+            });
+        }
+
         window.addEventListener('beforeunload', function (e) {
             try {
                 if (window.__shutdownRequested) {
@@ -102,6 +144,7 @@ function initExitAppBindings() {
                 }
                 const taskIds = (typeof window.getVideoTaskIdsFromUI === 'function') ? window.getVideoTaskIdsFromUI() : [];
                 if (Array.isArray(taskIds) && taskIds.length > 0) {
+                    window.__pendingExitApp = true;
                     e.preventDefault();
                     e.returnValue = '';
                     return '';
@@ -900,6 +943,8 @@ window.onload = async function () {
     initSettingsAccountBindings();
 
     initWorkspaceBindings(defaultSlug);
+
+    initClientHeartbeat();
 
     document.addEventListener('keydown', function (e) {
         const userIdSpan = document.getElementById('userId');

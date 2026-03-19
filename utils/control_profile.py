@@ -59,6 +59,7 @@ class _GlobalBrowser:
         self._download_dir = None
         self._lifecycle_lock = threading.Lock()
         self._spawned_pid = None
+        self._cdp_port = None
 
     def _thread_main(self, provider="grok", download_dir=None):
         try:
@@ -139,6 +140,37 @@ class _GlobalBrowser:
             return False
 
         cdp_port = _load_cdp_port_default_9222()
+        try:
+            self._cdp_port = int(cdp_port)
+        except Exception:
+            self._cdp_port = None
+
+        def _kill_conflicting_profile_chrome() -> None:
+            """Best-effort: if user opened the same PROFILE_DIR manually (no CDP),
+            Chrome will reuse the existing process and ignore our --remote-debugging-port.
+            That makes CDP port unavailable. We must close those processes first.
+            """
+            try:
+                if os.name != 'nt':
+                    return
+                prof_path = os.path.abspath(PROFILE_DIR)
+                prof_match = prof_path.replace('\\', '\\\\')
+                ps_cmd = (
+                    "Get-CimInstance Win32_Process | "
+                    "Where-Object { "
+                    "($_.Name -eq 'chrome.exe') -and "
+                    f"($_.CommandLine -like '*--user-data-dir={prof_match}*') -and "
+                    f"($_.CommandLine -notlike '*--remote-debugging-port={int(cdp_port)}*') "
+                    "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+                )
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", ps_cmd],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    **_win_subprocess_kwargs(),
+                )
+            except Exception:
+                pass
 
         def _start_chrome_profile_with_cdp() -> None:
             chrome = find_chrome()
@@ -196,6 +228,7 @@ class _GlobalBrowser:
         # control_profile.py is responsible for enabling 9222.
         if not await _wait_cdp_ready(cdp_port, timeout_s=1.0):
             try:
+                _kill_conflicting_profile_chrome()
                 _start_chrome_profile_with_cdp()
             except Exception:
                 pass
@@ -351,9 +384,16 @@ class _GlobalBrowser:
             import subprocess
             if os.name == 'nt':
                 prof = str(PROFILE_DIR).replace('\\', '\\\\')
+                port = None
+                try:
+                    port = int(self._cdp_port) if self._cdp_port is not None else None
+                except Exception:
+                    port = None
+                if not port:
+                    port = 9222
                 ps = (
                     "Get-CimInstance Win32_Process | "
-                    "Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*--remote-debugging-port=9222*' -and $_.CommandLine -like '*--user-data-dir="
+                    "Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*--remote-debugging-port=" + str(int(port)) + "*' -and $_.CommandLine -like '*--user-data-dir="
                     + prof
                     + "*' } | Select-Object -ExpandProperty ProcessId"
                 )
@@ -396,18 +436,33 @@ class _GlobalBrowser:
                     # Convert to double backslash for WMI/PowerShell matching
                     prof_match = prof_path.replace('\\', '\\\\')
 
+                    port = None
+                    try:
+                        port = int(self._cdp_port) if self._cdp_port is not None else None
+                    except Exception:
+                        port = None
+                    if not port:
+                        port = 9222
+
                     # Kill by port 9222 OR by profile directory in command line
                     ps_cmd = (
                         "Get-CimInstance Win32_Process | "
                         "Where-Object { "
                         "($_.Name -eq 'chrome.exe') -and "
-                        "($_.CommandLine -like '*--remote-debugging-port=9222*' -or $_.CommandLine -like '*--user-data-dir=" + prof_match + "*') "
+                        "($_.CommandLine -like '*--remote-debugging-port=" + str(int(port)) + "*' -or $_.CommandLine -like '*--user-data-dir=" + prof_match + "*') "
                         "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
                     )
                     subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **_win_subprocess_kwargs())
                 else:
                     # Unix fallback
-                    subprocess.run(["pkill", "-9", "-f", "remote-debugging-port=9222"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    port = None
+                    try:
+                        port = int(self._cdp_port) if self._cdp_port is not None else None
+                    except Exception:
+                        port = None
+                    if not port:
+                        port = 9222
+                    subprocess.run(["pkill", "-9", "-f", f"remote-debugging-port={int(port)}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
 

@@ -1015,6 +1015,13 @@ function initTaoVideoPage() {
                 return;
             }
 
+            // Refresh credit immediately after server accepted the job.
+            try {
+                if (typeof window.refreshCreditAsync === 'function') {
+                    await window.refreshCreditAsync();
+                }
+            } catch (e) {}
+
             let newTaskId = '';
             try {
                 const mappings = Array.isArray(data.tasks) ? data.tasks : [];
@@ -1346,6 +1353,13 @@ function initTaoVideoPage() {
                     startBtn.textContent = 'Bắt đầu';
                     return;
                 }
+
+                // Refresh credit immediately after server accepted the batch.
+                try {
+                    if (typeof window.refreshCreditAsync === 'function') {
+                        await window.refreshCreditAsync();
+                    }
+                } catch (e) {}
 
                 const mappings = Array.isArray(data.tasks) ? data.tasks : [];
                 _createVideosPending = {};

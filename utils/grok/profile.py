@@ -63,13 +63,15 @@ def setting_grok_profile():
         [
             chrome,
             f"--user-data-dir={PROFILE_DIR}",
+            "--window-size=1280,720",
+            "--window-position=200,100",
+            "--start-maximized",
             "--new-window",
             url
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
-        **_win_subprocess_kwargs(),
     )
 
     return proc
