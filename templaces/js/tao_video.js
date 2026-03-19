@@ -1124,6 +1124,21 @@ function initTaoVideoPage() {
                     }
                 } catch (e) {}
 
+                // Some providers update credit slightly after verify completes.
+                // Refresh again on phase=verified and on status=completed (throttled) so UI always catches up.
+                try {
+                    if (rowEl) {
+                        if (phase === 'verified' && String(rowEl.dataset.creditVerifiedRefreshed || '') !== '1') {
+                            rowEl.dataset.creditVerifiedRefreshed = '1';
+                            await _refreshCreditThrottled();
+                        }
+                        if (status === 'completed' && String(rowEl.dataset.creditCompletedRefreshed || '') !== '1') {
+                            rowEl.dataset.creditCompletedRefreshed = '1';
+                            await _refreshCreditThrottled();
+                        }
+                    }
+                } catch (e) {}
+
                 if (progress !== undefined && progress !== null) {
                     _setVideoProgress(videoIndex, progress, sceneIndex, totalScenes);
                 }
