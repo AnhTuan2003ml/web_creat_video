@@ -1429,76 +1429,48 @@ def open_grok_login():
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
-
 @app.route('/pick_result_folder', methods=['POST'])
 def pick_result_folder():
     try:
-        # Prefer Windows native folder picker via PowerShell/.NET to avoid Tk fullscreen flash
-        try:
-            if os.name == 'nt':
-                ps_cmd = (
-                    "Add-Type -AssemblyName System.Windows.Forms; "
-                    "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                    "$dlg.Description = 'Chọn thư mục lưu kết quả'; "
-                    "$dlg.ShowNewFolderButton = $true; "
-                    "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
-                    "  Write-Output $dlg.SelectedPath "
-                    "}"
-                )
-                r = subprocess.run(
-                    ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    **(lambda: (__import__('utils.control_profile', fromlist=['_win_subprocess_kwargs'])._win_subprocess_kwargs() if os.name == 'nt' else {}))(),
-                )
-                picked = (r.stdout or '').strip()
-                if picked:
-                    return jsonify({'ok': True, 'path': os.path.abspath(picked)})
-        except Exception:
-            pass
+        import os
+        import subprocess
+        from flask import jsonify
 
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-        except Exception as exc:
-            return jsonify({'ok': False, 'error': f'tkinter not available: {exc}'}), 500
+        if os.name != 'nt':
+            return jsonify({'ok': False, 'error': 'Only supported on Windows'}), 400
 
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
+        ps_cmd = (
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
+            "$dlg.Description = 'Chọn thư mục lưu kết quả'; "
+            "$dlg.ShowNewFolderButton = $true; "
+            # 👇 MỞ SẴN THƯ MỤC
+            "$dlg.SelectedPath = [Environment]::GetFolderPath('Desktop'); "
+            "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
+            "  Write-Output $dlg.SelectedPath "
+            "}"
+        )
 
-        try:
-            root.geometry('1x1+0+0')
-            try:
-                root.attributes('-alpha', 0.0)
-            except Exception:
-                pass
-            try:
-                root.iconify()
-            except Exception:
-                pass
-            root.update_idletasks()
-        except Exception:
-            pass
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            **(lambda: (
+                __import__('utils.control_profile', fromlist=['_win_subprocess_kwargs'])
+                ._win_subprocess_kwargs() if os.name == 'nt' else {}
+            ))(),
+        )
 
-        try:
-            path = filedialog.askdirectory(parent=root)
-        except Exception:
-            path = filedialog.askdirectory()
-
-        try:
-            root.destroy()
-        except Exception:
-            pass
+        path = (result.stdout or "").strip()
 
         if not path:
             return jsonify({'ok': False, 'error': 'No folder selected'}), 200
 
         return jsonify({'ok': True, 'path': os.path.abspath(path)})
+
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
-
 
 @app.route("/listmusic")
 def list_music():
