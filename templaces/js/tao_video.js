@@ -8,6 +8,86 @@ function _getNextVideoIndex(displayArea) {
     return startIndex + 1;
 }
 
+function _videoStorageKey() {
+    return 'tao_video_state_v1';
+}
+
+function _safeJsonParse(s, fallback) {
+    try {
+        return JSON.parse(String(s || ''));
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function _throttle(fn, waitMs) {
+    let t = null;
+    let lastArgs = null;
+    return function () {
+        lastArgs = arguments;
+        if (t) return;
+        t = setTimeout(() => {
+            t = null;
+            try { fn.apply(null, lastArgs); } catch (e) {}
+        }, Math.max(0, parseInt(String(waitMs || 0), 10) || 0));
+    };
+}
+
+const _persistTaoVideoStateThrottled = _throttle(() => {
+    try {
+        const displayArea = document.getElementById('video-display-area');
+        if (!displayArea) return;
+        const rows = Array.from(displayArea.querySelectorAll('.video-row'));
+        const items = rows.map((rowEl) => {
+            const idx = parseInt(String(rowEl.dataset.videoIndex || ''), 10) || 0;
+            const effectSelect = idx > 0 ? document.getElementById(`video-effect-${idx}`) : null;
+            const effect_key = effectSelect ? String(effectSelect.value || '') : String(rowEl.dataset.effectKey || '');
+            return {
+                videoIndex: idx,
+                defaultImage: String(rowEl.dataset.defaultImage || ''),
+                effectKey: String(effect_key || ''),
+                scriptName: String(rowEl.dataset.scriptName || ''),
+                scenes: String(rowEl.dataset.scenes || ''),
+                taskId: String(rowEl.dataset.taskId || ''),
+                resultUrl: String(rowEl.dataset.resultUrl || ''),
+                progressPercent: String(rowEl.dataset.progressPercent || ''),
+                sceneIndex: String(rowEl.dataset.sceneIndex || ''),
+                totalScenes: String(rowEl.dataset.totalScenes || ''),
+                phase: String(rowEl.dataset.phase || ''),
+                status: String(rowEl.dataset.status || ''),
+            };
+        });
+        localStorage.setItem(_videoStorageKey(), JSON.stringify({ rows: items }));
+    } catch (e) {}
+}, 350);
+
+function _persistTaoVideoStateNow() {
+    try { _persistTaoVideoStateThrottled(); } catch (e) {}
+}
+
+async function _waitUrlReady(url, timeoutMs) {
+    const start = Date.now();
+    const maxMs = Math.max(0, parseInt(String(timeoutMs || 0), 10) || 0);
+    const u0 = String(url || '').trim();
+    if (!u0) return false;
+
+    while (true) {
+        try {
+            const bust = u0 + (u0.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+            const res = await fetch(bust, { method: 'GET', cache: 'no-store' });
+            if (res && res.ok) {
+                try { await res.arrayBuffer(); } catch (e) {}
+                return true;
+            }
+        } catch (e) {}
+
+        if (maxMs > 0 && (Date.now() - start) > maxMs) {
+            return false;
+        }
+        await new Promise((r) => setTimeout(r, 700));
+    }
+}
+
 function _setRowCreateBtnState(videoIndex, isRunning) {
     const btn = document.getElementById(`video-btn-create-${videoIndex}`);
     if (!btn) return;
@@ -506,17 +586,38 @@ function _createVideoRow(index, defaultImage, titleText) {
     playBtn.id = `video-play-btn-${index}`;
     playBtn.style.cssText = 'display:none; position:absolute; inset: 0; align-items:center; justify-content:center; cursor:pointer; border-radius: 10px; background: rgba(0,0,0,0.25);';
     playBtn.innerHTML = `<div style="width: 54px; height: 54px; border-radius: 999px; background: rgba(0,0,0,0.65); display:flex; align-items:center; justify-content:center; border: 1px solid rgba(255,255,255,0.35); font-size: 22px; font-weight: 900;">▶</div>`;
-    playBtn.onclick = () => {
+    playBtn.onclick = async () => {
         const rowEl = document.getElementById(`video-row-${index}`);
         const url = rowEl ? String(rowEl.dataset.resultUrl || '') : '';
         if (!url) return;
+
+        if (String(playBtn.dataset.loading || '') === '1') return;
+        playBtn.dataset.loading = '1';
+        const ok = await _waitUrlReady(url, 12000);
+        playBtn.dataset.loading = '0';
+
+        if (!ok) {
+            if (typeof window.showSuccessOverlay === 'function') {
+                window.showSuccessOverlay('Video đang được chuẩn bị, vui lòng thử lại sau vài giây');
+            } else {
+                alert('Video đang được chuẩn bị, vui lòng thử lại sau vài giây');
+            }
+            return;
+        }
+
         const title = `Video ${index}`;
+        const freshUrl = url + (url.includes('?') ? '&' : '?') + `v=${Date.now()}`;
+        try {
+            if (rowEl) rowEl.dataset.resultUrl = freshUrl;
+        } catch (e) {}
+        _persistTaoVideoStateNow();
+
         if (typeof window.openVideoOverlay === 'function') {
-            window.openVideoOverlay(url, title);
+            window.openVideoOverlay(freshUrl, title);
         } else if (typeof openVideoOverlay === 'function') {
-            openVideoOverlay(url, title);
+            openVideoOverlay(freshUrl, title);
         } else {
-            window.open(url, '_blank');
+            window.open(freshUrl, '_blank');
         }
     };
 
@@ -557,6 +658,15 @@ function _createVideoRow(index, defaultImage, titleText) {
     effectCol.appendChild(effectLabel);
     effectCol.appendChild(effectSelect);
     _populateEffectSelect(effectSelect, row);
+    try {
+        const oldChange = effectSelect.onchange;
+        effectSelect.onchange = (ev) => {
+            try {
+                if (typeof oldChange === 'function') oldChange(ev);
+            } catch (e) {}
+            _persistTaoVideoStateNow();
+        };
+    } catch (e) {}
 
     const result = document.createElement('div');
     result.className = 'video-col result';
@@ -727,6 +837,7 @@ function _createVideoRow(index, defaultImage, titleText) {
         try { row.remove(); } catch (e) {
             if (row && row.parentNode) row.parentNode.removeChild(row);
         }
+        _persistTaoVideoStateNow();
     };
 
     _updateScriptBadge(index);
@@ -825,6 +936,10 @@ function initTaoVideoPage() {
                 displayArea.classList.remove('is-visible');
             } catch (e) {}
 
+            try {
+                localStorage.removeItem(_videoStorageKey());
+            } catch (e) {}
+
             if (typeof window.showSuccessOverlay === 'function') {
                 window.showSuccessOverlay('Đã lưu thành công');
             } else {
@@ -868,6 +983,7 @@ function initTaoVideoPage() {
                     if (!src) return;
                     const row = _createVideoRow(nextIndex, src);
                     displayArea.appendChild(row);
+                    _persistTaoVideoStateNow();
                     nextIndex += 1;
                 };
                 reader.readAsDataURL(file);
@@ -875,6 +991,71 @@ function initTaoVideoPage() {
         };
         input.click();
     };
+
+    try {
+        const saved = _safeJsonParse(localStorage.getItem(_videoStorageKey()), null);
+        const rows = saved && Array.isArray(saved.rows) ? saved.rows : [];
+        if (rows.length > 0) {
+            displayArea.classList.add('is-visible');
+            try {
+                rows.sort((a, b) => (parseInt(String(a.videoIndex || 0), 10) || 0) - (parseInt(String(b.videoIndex || 0), 10) || 0));
+            } catch (e) {}
+
+            rows.forEach((it) => {
+                const idx = parseInt(String(it.videoIndex || ''), 10) || 0;
+                if (idx <= 0) return;
+                const row = _createVideoRow(idx, String(it.defaultImage || ''));
+                try {
+                    row.dataset.effectKey = String(it.effectKey || '');
+                    row.dataset.scriptName = String(it.scriptName || '');
+                    row.dataset.scenes = String(it.scenes || '');
+                    row.dataset.taskId = String(it.taskId || '');
+                    row.dataset.resultUrl = String(it.resultUrl || '');
+                    row.dataset.progressPercent = String(it.progressPercent || '');
+                    row.dataset.sceneIndex = String(it.sceneIndex || '');
+                    row.dataset.totalScenes = String(it.totalScenes || '');
+                    row.dataset.phase = String(it.phase || '');
+                    row.dataset.status = String(it.status || '');
+                } catch (e) {}
+
+                displayArea.appendChild(row);
+
+                try {
+                    if (row.dataset.resultUrl) {
+                        const playBtn = document.getElementById(`video-play-btn-${idx}`);
+                        if (playBtn) playBtn.style.display = 'flex';
+                        _setVideoResultLink(idx, row.dataset.resultUrl);
+                    }
+                } catch (e) {}
+
+                try {
+                    const p = parseInt(String(row.dataset.progressPercent || ''), 10);
+                    const sIdx = parseInt(String(row.dataset.sceneIndex || ''), 10);
+                    const sTot = parseInt(String(row.dataset.totalScenes || ''), 10);
+                    if (Number.isFinite(p) || Number.isFinite(sIdx) || Number.isFinite(sTot)) {
+                        _setVideoProgress(idx, Number.isFinite(p) ? p : 0, Number.isFinite(sIdx) ? sIdx : null, Number.isFinite(sTot) ? sTot : null);
+                    }
+                } catch (e) {}
+
+                try {
+                    const st = String(row.dataset.status || '');
+                    const ph = String(row.dataset.phase || '');
+                    if (st || ph) {
+                        _setVideoSceneStatus(idx, ph || st);
+                    }
+                } catch (e) {}
+            });
+        }
+    } catch (e) {}
+
+    try {
+        if (!window.__taoVideoPersistBound) {
+            window.__taoVideoPersistBound = true;
+            window.addEventListener('beforeunload', () => {
+                try { _persistTaoVideoStateNow(); } catch (e) {}
+            });
+        }
+    } catch (e) {}
 
     let _createVideosPollingTimer = null;
     let _createVideosRunning = false;
@@ -970,6 +1151,8 @@ function initTaoVideoPage() {
 
         _setRowCreateBtnState(idx, true);
         _setVideoSceneStatus(idx, 'Đang tạo cảnh 1');
+
+        _persistTaoVideoStateNow();
 
         try {
             const res = await fetch('/create_videos_batch_start', {

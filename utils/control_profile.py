@@ -236,14 +236,13 @@ class _GlobalBrowser:
         if not await _wait_cdp_ready(cdp_port, timeout_s=12.0):
             raise RuntimeError(f"CDP port {cdp_port} is not available")
 
-        print(f"DEBUG: Connecting to Chrome via CDP (port {cdp_port})...")
         self._browser = await self._playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{int(cdp_port)}', timeout=15000)
         self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720}, position={'x': 0, 'y': 0})
 
         # Try to force download directory via CDP if requested (best-effort)
         if download_dir:
             try:
-                print(f"DEBUG: Set download_dir={download_dir}")
+                pass
             except Exception:
                 pass
             # 1) Browser-level (preferred)
@@ -316,7 +315,6 @@ class _GlobalBrowser:
 
     async def get_context_async(self):
         if not self._is_context_alive():
-            print("DEBUG: Context is dead or browser disconnected. Re-initializing...")
             await self._async_init(provider=self._provider, download_dir=self._download_dir)
         return self._context
 

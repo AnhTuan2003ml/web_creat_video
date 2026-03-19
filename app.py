@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, make_response
 
 import asyncio
 import base64
@@ -11,6 +11,11 @@ from typing import Dict, Any
 
 import json
 import time
+
+try:
+    os.environ.setdefault('NODE_OPTIONS', '--no-warnings')
+except Exception:
+    pass
 
 from utils.control_music import (
     list_music_handler,
@@ -155,6 +160,22 @@ def _force_exit_later(delay_sec: float = 0.4) -> None:
         except Exception:
             pass
         try:
+            from utils.control_profile import close_global_browser
+            try:
+                close_global_browser('video')
+            except Exception:
+                pass
+            try:
+                close_global_browser('image')
+            except Exception:
+                pass
+            try:
+                close_global_browser('default')
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
             os._exit(0)
         except Exception:
             pass
@@ -270,6 +291,34 @@ def serve_config(filename: str):
 @app.route('/generated/<path:filename>')
 def serve_generated(filename: str):
     return send_from_directory(GENERATED_DIR, filename)
+
+
+@app.route('/ico/<path:filename>')
+def serve_ico(filename: str):
+    try:
+        p1 = os.path.join(EXE_DIR, 'ico')
+        if os.path.exists(os.path.join(p1, filename)):
+            resp = make_response(send_from_directory(p1, filename))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
+
+        p2 = os.path.join(BUNDLE_DIR, 'ico')
+        if os.path.exists(os.path.join(p2, filename)):
+            resp = make_response(send_from_directory(p2, filename))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
+            return resp
+    except Exception:
+        pass
+    return ('', 404)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return serve_ico('logo.ico')
 
 
 @app.route('/debug_browser', methods=['GET'])
@@ -1441,13 +1490,22 @@ def pick_result_folder():
 
         ps_cmd = (
             "Add-Type -AssemblyName System.Windows.Forms; "
-            "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
-            "$dlg.Description = 'Chọn thư mục lưu kết quả'; "
-            "$dlg.ShowNewFolderButton = $true; "
-            # 👇 MỞ SẴN THƯ MỤC
-            "$dlg.SelectedPath = [Environment]::GetFolderPath('Desktop'); "
+            "$dlg = New-Object System.Windows.Forms.OpenFileDialog; "
+
+            # 🔒 Không cho chọn file thật
+            "$dlg.ValidateNames = $false; "
+            "$dlg.CheckFileExists = $false; "
+            "$dlg.CheckPathExists = $true; "
+            "$dlg.FileName = 'Chọn thư mục'; "
+
+            # 👇 filter ẩn file
+            "$dlg.Filter = 'Folders|*.'; "
+
+            "$dlg.Title = 'Chọn thư mục lưu kết quả'; "
+            "$dlg.InitialDirectory = [Environment]::GetFolderPath('Desktop'); "
+
             "if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
-            "  Write-Output $dlg.SelectedPath "
+            "  Split-Path $dlg.FileName "
             "}"
         )
 
@@ -1471,6 +1529,7 @@ def pick_result_folder():
 
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
+
 
 @app.route("/listmusic")
 def list_music():
@@ -1874,7 +1933,57 @@ def _start_client_watchdog(timeout_sec: float = 12.0, check_interval: float = 2.
         pass
 
 
+def _disable_windows_console_quickedit() -> None:
+    try:
+        if os.name != 'nt':
+            return
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        STD_INPUT_HANDLE = -10
+        ENABLE_EXTENDED_FLAGS = 0x0080
+        ENABLE_QUICK_EDIT_MODE = 0x0040
+        ENABLE_INSERT_MODE = 0x0020
+
+        h = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        if not h:
+            return
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(h, ctypes.byref(mode)):
+            return
+        new_mode = mode.value
+        new_mode |= ENABLE_EXTENDED_FLAGS
+        new_mode &= ~ENABLE_QUICK_EDIT_MODE
+        new_mode &= ~ENABLE_INSERT_MODE
+        kernel32.SetConsoleMode(h, new_mode)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
+    _disable_windows_console_quickedit()
+
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.settimeout(0.2)
+            if s.connect_ex(("127.0.0.1", 5000)) == 0:
+                try:
+                    open_browser()
+                except Exception:
+                    pass
+                raise SystemExit(0)
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    except SystemExit:
+        raise
+    except Exception:
+        pass
     threading.Timer(1.0, open_browser).start()
-    _start_client_watchdog(timeout_sec=12.0, check_interval=2.0)
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
+    _start_client_watchdog(timeout_sec=60.0, check_interval=5.0)
+
+    app.run(host="127.0.0.1", port=5000, debug=(not getattr(sys, 'frozen', False)), use_reloader=False, threaded=True)

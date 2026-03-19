@@ -851,6 +851,13 @@ function initResultFolderBindings() {
 
     if (!resultBtn || !resultLabel) return;
 
+    try {
+        const saved = String(localStorage.getItem('resultFolderPath') || '').trim();
+        if (saved) {
+            resultLabel.textContent = saved;
+        }
+    } catch (e) {}
+
     resultBtn.onclick = async function () {
         try {
             const res = await fetch('/pick_result_folder', {
@@ -873,6 +880,9 @@ function initResultFolderBindings() {
             }
 
             resultLabel.textContent = data.path;
+            try {
+                localStorage.setItem('resultFolderPath', String(data.path || '').trim());
+            } catch (e) {}
         } catch (err) {
             console.error('Lỗi gọi /pick_result_folder:', err);
             if (typeof window.showSuccessOverlay === 'function') {
@@ -945,6 +955,13 @@ window.onload = async function () {
     initWorkspaceBindings(defaultSlug);
 
     initClientHeartbeat();
+
+    try {
+        const splash = document.getElementById('startup-splash');
+        if (splash) {
+            splash.style.display = 'none';
+        }
+    } catch (_) {}
 
     document.addEventListener('keydown', function (e) {
         const userIdSpan = document.getElementById('userId');

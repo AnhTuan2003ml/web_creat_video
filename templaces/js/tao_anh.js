@@ -1,5 +1,71 @@
 let imageFormCounter = 0;
 
+function _imageStorageKey() {
+    return 'tao_anh_state_v1';
+}
+
+function _safeJsonParse(s, fallback) {
+    try {
+        return JSON.parse(String(s || ''));
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function _throttle(fn, waitMs) {
+    let t = null;
+    let lastArgs = null;
+    return function () {
+        lastArgs = arguments;
+        if (t) return;
+        t = setTimeout(() => {
+            t = null;
+            try { fn.apply(null, lastArgs); } catch (e) {}
+        }, Math.max(0, parseInt(String(waitMs || 0), 10) || 0));
+    };
+}
+
+const _persistTaoAnhStateThrottled = _throttle(() => {
+    try {
+        const displayArea = document.getElementById('image-display-area');
+        if (!displayArea) return;
+        const forms = Array.from(displayArea.querySelectorAll('.workspace-container'));
+        const items = forms.map((root) => {
+            const formId = String(root.dataset.formId || '').trim();
+            const charImg = root.querySelector(`[id$="-display-character"] img`);
+            const prodImg = root.querySelector(`[id$="-display-product"] img`);
+            const promptEl = root.querySelector(`[id$="-display-description"] textarea`);
+            const resultImg = root.querySelector(`[id$="-display-result"] img`);
+            const genBtn = root.querySelector(`[id$="-btn-generate"]`);
+            return {
+                formId,
+                image1: charImg ? String(charImg.getAttribute('src') || '') : '',
+                image2: prodImg ? String(prodImg.getAttribute('src') || '') : '',
+                prompt: promptEl ? String(promptEl.value || '') : '',
+                taskId: String(root.dataset.taskId || ''),
+                running: genBtn ? (String(genBtn.dataset.running || '') === '1') : false,
+                resultUrl: resultImg ? String(resultImg.getAttribute('src') || '') : '',
+                completed: !!resultImg,
+            };
+        });
+
+        localStorage.setItem(_imageStorageKey(), JSON.stringify({ forms: items }));
+    } catch (e) {}
+}, 350);
+
+function _persistTaoAnhStateNow() {
+    try { _persistTaoAnhStateThrottled(); } catch (e) {}
+}
+
+function _setCreateBtnState(root, isRunning) {
+    try {
+        const genBtn = root ? root.querySelector(`[id$="-btn-generate"]`) : null;
+        if (!genBtn) return;
+        genBtn.dataset.running = isRunning ? '1' : '0';
+        genBtn.textContent = isRunning ? 'Hủy' : 'Tạo';
+    } catch (e) {}
+}
+
 function _createImageForm({ characterSrc, characterName }) {
     const formId = `img-form-${imageFormCounter++}`;
 
@@ -110,6 +176,7 @@ function _createImageForm({ characterSrc, characterName }) {
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             root.remove();
+            _persistTaoAnhStateNow();
         });
     }
 
@@ -137,8 +204,8 @@ function _createImageForm({ characterSrc, characterName }) {
                 } catch (e) {}
 
                 root.dataset.taskId = '';
-                genBtn.dataset.running = '0';
-                genBtn.textContent = 'Tạo';
+                _setCreateBtnState(root, false);
+                _persistTaoAnhStateNow();
 
                 const box = root.querySelector(`#${CSS.escape(resultBoxId)}`);
                 if (box) {
@@ -154,6 +221,14 @@ function _createImageForm({ characterSrc, characterName }) {
             const charImg = root.querySelector(`[id$="-display-character"] img`);
             const prodImg = root.querySelector(`[id$="-display-product"] img`);
             const promptEl = root.querySelector(`[id$="-display-description"] textarea`);
+
+            try {
+                if (promptEl && !promptEl.dataset.persistBound) {
+                    promptEl.dataset.persistBound = '1';
+                    promptEl.addEventListener('input', () => _persistTaoAnhStateNow());
+                    promptEl.addEventListener('change', () => _persistTaoAnhStateNow());
+                }
+            } catch (e) {}
 
             const task = {
                 form_id: String(root.dataset.formId || '').trim(),
@@ -201,8 +276,8 @@ function _createImageForm({ characterSrc, characterName }) {
                 box.title = '';
             }
 
-            genBtn.dataset.running = '1';
-            genBtn.textContent = 'Hủy';
+            _setCreateBtnState(root, true);
+            _persistTaoAnhStateNow();
 
             try {
                 const res = await fetch('/create_images_batch_start', {
@@ -234,12 +309,13 @@ function _createImageForm({ characterSrc, characterName }) {
                 }
 
                 if (!newTaskId) {
-                    genBtn.dataset.running = '0';
-                    genBtn.textContent = 'Tạo';
+                    _setCreateBtnState(root, false);
+                    _persistTaoAnhStateNow();
                     return;
                 }
 
                 root.dataset.taskId = newTaskId;
+                _persistTaoAnhStateNow();
                 window._singleImagePollers = window._singleImagePollers || {};
 
                 const pollOnce = async () => {
@@ -261,8 +337,8 @@ function _createImageForm({ characterSrc, characterName }) {
                                 img.style.maxHeight = '100%';
                                 box.appendChild(img);
                             }
-                            genBtn.dataset.running = '0';
-                            genBtn.textContent = 'Tạo';
+                            _setCreateBtnState(root, false);
+                            _persistTaoAnhStateNow();
                             if (window._singleImagePollers && window._singleImagePollers[tid]) {
                                 clearInterval(window._singleImagePollers[tid]);
                                 delete window._singleImagePollers[tid];
@@ -275,8 +351,8 @@ function _createImageForm({ characterSrc, characterName }) {
                                 note.textContent = d.error || (d.status === 'failed' ? 'Tạo ảnh thất bại' : 'Đã hủy');
                                 box.appendChild(note);
                             }
-                            genBtn.dataset.running = '0';
-                            genBtn.textContent = 'Tạo';
+                            _setCreateBtnState(root, false);
+                            _persistTaoAnhStateNow();
                             if (window._singleImagePollers && window._singleImagePollers[tid]) {
                                 clearInterval(window._singleImagePollers[tid]);
                                 delete window._singleImagePollers[tid];
@@ -288,8 +364,8 @@ function _createImageForm({ characterSrc, characterName }) {
                 await pollOnce();
                 window._singleImagePollers[newTaskId] = setInterval(pollOnce, 1200);
             } catch (e) {
-                genBtn.dataset.running = '0';
-                genBtn.textContent = 'Tạo';
+                _setCreateBtnState(root, false);
+                _persistTaoAnhStateNow();
             }
         });
     }
@@ -485,6 +561,7 @@ function initTaoAnhPage() {
                         const src = String(event.target && event.target.result ? event.target.result : '');
                         const formEl = _createImageForm({ characterSrc: src, characterName: file.name });
                         displayArea.appendChild(formEl);
+                        _persistTaoAnhStateNow();
                     };
                     reader.readAsDataURL(file);
                 });
@@ -492,6 +569,169 @@ function initTaoAnhPage() {
             input.click();
         };
     }
+
+    const clearCompletedBtn = document.getElementById('btn-clear-completed-images');
+    if (clearCompletedBtn) {
+        clearCompletedBtn.onclick = () => {
+            const displayArea = document.getElementById('image-display-area');
+            if (!displayArea) return;
+            const forms = Array.from(displayArea.querySelectorAll('.workspace-container'));
+            forms.forEach((root) => {
+                try {
+                    const hasResultImg = !!root.querySelector(`[id$="-display-result"] img`);
+                    if (!hasResultImg) return;
+
+                    const genBtn = root.querySelector(`[id$="-btn-generate"]`);
+                    const isRunning = genBtn ? (String(genBtn.dataset.running || '') === '1') : false;
+                    const taskId = String(root.dataset.taskId || '').trim();
+                    if (isRunning || taskId) {
+                        return;
+                    }
+                    root.remove();
+                } catch (e) {}
+            });
+            _persistTaoAnhStateNow();
+        };
+    }
+
+    try {
+        const displayArea = document.getElementById('image-display-area');
+        if (displayArea) {
+            const saved = _safeJsonParse(localStorage.getItem(_imageStorageKey()), null);
+            const items = saved && Array.isArray(saved.forms) ? saved.forms : [];
+            if (items.length > 0) {
+                if (!displayArea.classList.contains('is-visible')) {
+                    displayArea.classList.add('is-visible');
+                }
+
+                items.forEach((it) => {
+                    const formEl = _createImageForm({ characterSrc: String(it.image1 || ''), characterName: '' });
+                    try {
+                        if (it.formId) formEl.dataset.formId = String(it.formId);
+                        if (it.taskId) formEl.dataset.taskId = String(it.taskId);
+                    } catch (e) {}
+
+                    // product image
+                    try {
+                        if (it.image2) {
+                            const prodBox = formEl.querySelector(`[id$="-display-product"]`);
+                            if (prodBox) {
+                                prodBox.innerHTML = '';
+                                prodBox.classList.remove('placeholder');
+                                const img = document.createElement('img');
+                                img.src = String(it.image2);
+                                img.alt = 'product';
+                                prodBox.appendChild(img);
+                            }
+                        }
+                    } catch (e) {}
+
+                    // prompt
+                    try {
+                        const promptEl = formEl.querySelector(`[id$="-display-description"] textarea`);
+                        if (promptEl) {
+                            promptEl.value = String(it.prompt || '');
+                            if (!promptEl.dataset.persistBound) {
+                                promptEl.dataset.persistBound = '1';
+                                promptEl.addEventListener('input', () => _persistTaoAnhStateNow());
+                                promptEl.addEventListener('change', () => _persistTaoAnhStateNow());
+                            }
+                        }
+                    } catch (e) {}
+
+                    // restore result
+                    try {
+                        if (it.resultUrl) {
+                            const box = formEl.querySelector(`[id$="-display-result"]`);
+                            if (box) {
+                                box.innerHTML = '';
+                                const img = document.createElement('img');
+                                img.src = String(it.resultUrl);
+                                img.alt = 'result';
+                                img.style.maxWidth = '100%';
+                                img.style.maxHeight = '100%';
+                                box.appendChild(img);
+                            }
+                        }
+                    } catch (e) {}
+
+                    // restore running state (best-effort)
+                    try {
+                        if (it.running && it.taskId) {
+                            _setCreateBtnState(formEl, true);
+                        }
+                    } catch (e) {}
+
+                    displayArea.appendChild(formEl);
+
+                    // if running and has taskId, resume polling
+                    try {
+                        const tid = String(it.taskId || '').trim();
+                        if (it.running && tid) {
+                            const genBtn = formEl.querySelector(`[id$="-btn-generate"]`);
+                            const box = formEl.querySelector(`[id$="-display-result"]`);
+
+                            window._singleImagePollers = window._singleImagePollers || {};
+                            const pollOnce = async () => {
+                                const t0 = String(formEl.dataset.taskId || '').trim();
+                                if (!t0 || t0 !== tid) return;
+                                try {
+                                    const r = await fetch(`/task_image?task_id=${encodeURIComponent(t0)}`);
+                                    const d = await r.json().catch(() => ({}));
+                                    if (!d || d.ok !== true) return;
+                                    if (d.status === 'completed' && d.url) {
+                                        if (box) {
+                                            box.innerHTML = '';
+                                            const img = document.createElement('img');
+                                            img.src = d.url;
+                                            img.alt = 'result';
+                                            img.style.maxWidth = '100%';
+                                            img.style.maxHeight = '100%';
+                                            box.appendChild(img);
+                                        }
+                                        formEl.dataset.taskId = '';
+                                        if (genBtn) genBtn.dataset.running = '0';
+                                        _setCreateBtnState(formEl, false);
+                                        if (window._singleImagePollers && window._singleImagePollers[t0]) {
+                                            clearInterval(window._singleImagePollers[t0]);
+                                            delete window._singleImagePollers[t0];
+                                        }
+                                        _persistTaoAnhStateNow();
+                                    } else if (d.status === 'failed' || d.status === 'cancelled') {
+                                        if (box) {
+                                            box.innerHTML = '';
+                                            const note = document.createElement('div');
+                                            note.style.cssText = 'padding: 10px; color: #ff4d4d; font-size: 12px;';
+                                            note.textContent = d.error || (d.status === 'failed' ? 'Tạo ảnh thất bại' : 'Đã hủy');
+                                            box.appendChild(note);
+                                        }
+                                        formEl.dataset.taskId = '';
+                                        _setCreateBtnState(formEl, false);
+                                        if (window._singleImagePollers && window._singleImagePollers[t0]) {
+                                            clearInterval(window._singleImagePollers[t0]);
+                                            delete window._singleImagePollers[t0];
+                                        }
+                                        _persistTaoAnhStateNow();
+                                    }
+                                } catch (e) {}
+                            };
+                            pollOnce();
+                            window._singleImagePollers[tid] = setInterval(pollOnce, 1200);
+                        }
+                    } catch (e) {}
+                });
+            }
+        }
+    } catch (e) {}
+
+    try {
+        if (!window.__taoAnhPersistBound) {
+            window.__taoAnhPersistBound = true;
+            window.addEventListener('beforeunload', () => {
+                try { _persistTaoAnhStateNow(); } catch (e) {}
+            });
+        }
+    } catch (e) {}
 
     const promptAllBtn = document.getElementById('btn-input-prompt-image-all');
     if (promptAllBtn) {
@@ -664,6 +904,7 @@ function initTaoAnhPage() {
                                 img.style.maxHeight = '100%';
                                 resultBox.appendChild(img);
                                 delete _createImagesPending[taskId];
+                                _persistTaoAnhStateNow();
                             } else if (d.status === 'failed') {
                                 const formEl = forms.find(f => (f.dataset.formId || '') === formId);
                                 if (!formEl) return;
@@ -675,6 +916,7 @@ function initTaoAnhPage() {
                                 note.textContent = d.error || 'Tạo ảnh thất bại';
                                 resultBox.appendChild(note);
                                 delete _createImagesPending[taskId];
+                                _persistTaoAnhStateNow();
                             } else if (d.status === 'cancelled') {
                                 const formEl = forms.find(f => (f.dataset.formId || '') === formId);
                                 if (!formEl) return;
@@ -686,6 +928,7 @@ function initTaoAnhPage() {
                                 note.textContent = d.error || 'Đã hủy';
                                 resultBox.appendChild(note);
                                 delete _createImagesPending[taskId];
+                                _persistTaoAnhStateNow();
                             }
                         } catch (e) {
                             // ignore transient polling errors
