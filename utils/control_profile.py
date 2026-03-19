@@ -157,6 +157,9 @@ class _GlobalBrowser:
                     f"--user-data-dir={PROFILE_DIR}",
                     f"--remote-debugging-port={int(cdp_port)}",
                     "--remote-debugging-address=127.0.0.1",
+                    # Keep automation window off-screen (manual login uses utils/grok/profile.py instead)
+                    "--window-position=-32000,0",
+                    "--window-size=1280,720",
                     "--new-window",
                     url,
                 ],
@@ -202,7 +205,7 @@ class _GlobalBrowser:
 
         print(f"DEBUG: Connecting to Chrome via CDP (port {cdp_port})...")
         self._browser = await self._playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{int(cdp_port)}', timeout=15000)
-        self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720}, position={'x': -50, 'y': -50})
+        self._context = self._browser.contexts[0] if self._browser.contexts else await self._browser.new_context(accept_downloads=True, viewport={'width': 1280, 'height': 720}, position={'x': 0, 'y': 0})
 
         # Try to force download directory via CDP if requested (best-effort)
         if download_dir:

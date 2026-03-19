@@ -294,8 +294,8 @@ def generate_script_handler():
     try:
         config_file = os.path.join(BASE_DIR, "config", "config.json")
         cfg = _read_json_file(config_file)
-        cfg["MODEL_AI"] = model
-        cfg["API_CHAT"] = api_key
+        cfg["cloneVideoModel"] = model
+        cfg["cloneVideoApiKey"] = api_key
         _write_json_file(config_file, cfg)
     except Exception:
         pass

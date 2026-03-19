@@ -473,110 +473,121 @@ async def download_by_click_save_as(page, out_path, timeout_ms=240000):
 
 async def create_video_grok(context, job: VideoJob, cancel_event=None, timeout_s=420):
 
-    # Validate BEFORE opening a new tab
     img = str(getattr(job, 'image_path', '') or '').strip()
     pr = str(getattr(job, 'prompt', '') or '').strip()
     if not pr or not img or (not os.path.exists(img)):
         raise ValueError("Missing prompt/image for video job")
 
-    page = await context.new_page()
-    try:
-        tid = str(getattr(job, 'task_id', '') or '').strip()
-        if tid:
-            _ACTIVE_VIDEO_PAGES[tid] = page
-    except Exception:
-        pass
+    tid = str(getattr(job, 'task_id', '') or '').strip()
+    last_exc = None
 
-    try:
+    for attempt in range(1, 4):
+        if cancel_event is not None and getattr(cancel_event, 'is_set', None):
+            try:
+                if cancel_event.is_set():
+                    raise asyncio.CancelledError()
+            except Exception:
+                pass
 
-        await page.goto("https://grok.com/imagine", timeout=60000)
-
-        upload = page.locator(UPLOAD_INPUT).first
-        await upload.wait_for(state="attached", timeout=30000)
-        await upload.set_input_files(img)
-
-        await asyncio.sleep(2)
-
-        # chọn video mode
+        page = await context.new_page()
         try:
-            video_mode_btn = page.locator(SELECTOR_VIDEO_MODE).first
-            await video_mode_btn.wait_for(state="visible", timeout=10000)
-            if await video_mode_btn.get_attribute("aria-checked") != "true":
-                await video_mode_btn.click()
-        except:
-            pass
+            if tid:
+                _ACTIVE_VIDEO_PAGES[tid] = page
 
-        # nhập prompt
-        editor = page.locator(PROMPT_EDITOR).first
-        await editor.wait_for(timeout=30000)
-        await editor.fill(pr)
+            await page.goto("https://grok.com/imagine", timeout=60000)
 
-        # submit
-        btn = page.locator(SELECTOR_CREATE_VIDEO_BUTTON).first
-        await btn.wait_for(state="visible", timeout=20000)
-        await btn.click()
+            upload = page.locator(UPLOAD_INPUT).first
+            await upload.wait_for(state="attached", timeout=30000)
+            await upload.set_input_files(img)
 
-        # Only click into main container after we have navigated to /imagine/post/...
-        try:
-            deadline = asyncio.get_event_loop().time() + 25.0
-            while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(2)
+
+            try:
+                video_mode_btn = page.locator(SELECTOR_VIDEO_MODE).first
+                await video_mode_btn.wait_for(state="visible", timeout=10000)
+                if await video_mode_btn.get_attribute("aria-checked") != "true":
+                    await video_mode_btn.click()
+            except Exception:
+                pass
+
+            editor = page.locator(PROMPT_EDITOR).first
+            await editor.wait_for(timeout=30000)
+            await editor.fill(pr)
+
+            btn = page.locator(SELECTOR_CREATE_VIDEO_BUTTON).first
+            await btn.wait_for(state="visible", timeout=20000)
+            await btn.click()
+
+            try:
+                deadline = asyncio.get_event_loop().time() + 25.0
+                while asyncio.get_event_loop().time() < deadline:
+                    try:
+                        u = str(page.url or '')
+                    except Exception:
+                        u = ''
+                    if '/imagine/post/' in u:
+                        break
+                    await asyncio.sleep(0.3)
+
                 try:
                     u = str(page.url or '')
                 except Exception:
                     u = ''
+
                 if '/imagine/post/' in u:
-                    break
-                await asyncio.sleep(0.3)
+                    try:
+                        await page.locator('main[tabindex="-1"]').first.click(timeout=3000)
+                    except Exception:
+                        try:
+                            await _click_empty_area(page)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            await asyncio.sleep(2)
+
+            video = page.locator(SELECTOR_RESULT_VIDEO).first
+            await video.wait_for(state="visible", timeout=int(timeout_s * 1000))
+
+            await page.wait_for_function(
+                """() => {
+                  const v = document.querySelector('video[src]');
+                  return !!(v && v.readyState >= 3 && v.src && v.src.length > 50);
+                }""",
+                timeout=60000,
+            )
+
+            await asyncio.sleep(1)
+            result_path = await download_by_click_save_as(page, job.out_path)
+            return result_path
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+        finally:
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
 
             try:
-                u = str(page.url or '')
+                if tid and _ACTIVE_VIDEO_PAGES.get(tid) is page:
+                    _ACTIVE_VIDEO_PAGES.pop(tid, None)
             except Exception:
-                u = ''
+                pass
 
-            if '/imagine/post/' in u:
-                try:
-                    await page.locator('main[tabindex="-1"]').first.click(timeout=3000)
-                except Exception:
-                    try:
-                        await _click_empty_area(page)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+        if attempt < 3:
+            try:
+                await asyncio.sleep(1.2)
+            except Exception:
+                pass
 
-        await asyncio.sleep(2)
-
-        # đợi video xuất hiện
-        video = page.locator(SELECTOR_RESULT_VIDEO).first
-        await video.wait_for(state="visible", timeout=int(timeout_s * 1000))
-
-        await page.wait_for_function(
-            """() => {
-              const v = document.querySelector('video[src]');
-              return !!(v && v.readyState >= 3 && v.src && v.src.length > 50);
-            }""",
-            timeout=60000,
-        )
-
-        await asyncio.sleep(1)
-        # download (GIỐNG C#)
-        result_path = await download_by_click_save_as(page, job.out_path)
-
-        return result_path
-
-    finally:
-        try:
-            if not page.is_closed():
-                await page.close()
-        except Exception:
-            pass
-
-        try:
-            tid = str(getattr(job, 'task_id', '') or '').strip()
-            if tid and _ACTIVE_VIDEO_PAGES.get(tid) is page:
-                _ACTIVE_VIDEO_PAGES.pop(tid, None)
-        except Exception:
-            pass
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError('create_video_grok failed')
 
 
 # =========================

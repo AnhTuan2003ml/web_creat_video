@@ -282,11 +282,11 @@ async function loadConfig() {
         }
 
         const cloneVideoModelSelect = document.getElementById('cloneVideoModelSelect');
-        setSelectByValueOrText(cloneVideoModelSelect, data.MODEL_AI);
+        setSelectByValueOrText(cloneVideoModelSelect, data.cloneVideoModel);
 
         const cloneVideoApiKey = document.getElementById('cloneVideoApiKey');
         if (cloneVideoApiKey) {
-            cloneVideoApiKey.value = data.API_CHAT || data.API_KEY || '';
+            cloneVideoApiKey.value = data.cloneVideoApiKey || '';
         }
     } catch (error) {
         console.error('Lỗi loading config:', error);

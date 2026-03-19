@@ -1023,6 +1023,11 @@ function initTaoVideoPage() {
                 if (found && found.task_id) {
                     newTaskId = String(found.task_id || '').trim();
                 }
+                // Fallback: if server did not echo form_id as expected, but we only requested 1 task,
+                // use the first returned mapping so polling still works.
+                if (!newTaskId && mappings.length === 1 && mappings[0] && mappings[0].task_id) {
+                    newTaskId = String(mappings[0].task_id || '').trim();
+                }
             } catch (e) {
                 newTaskId = '';
             }

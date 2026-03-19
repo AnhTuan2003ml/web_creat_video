@@ -1,34 +1,10 @@
 {
   "API": "https://server.autovideo9999.store/",
-  "MODEL_AI": "gemini-2.5-flash",
-  "API_CHAT": "AIzaSyBy8VcSJGdteeDhMn5fZR4mDnuCo__ExIo",
   "VERSION": "3.2.3",
-  "TAI_KHOAN": {
-    "VEO": {
-      "GMAIL": "hoangngochiep62@gmail.com",
-      "PASSWORD": "hzhzhzhz"
-    },
-    "GROK": {
-      "GMAIL": "yuliagoodvind190999@hotmail.com",
-      "PASSWORD": "Chatgpt@123123"
-    },
-    "KLING": {
-      "GMAIL": "nghia.nguyen@klingsai.com",
-      "PASSWORD": "Nghia12032002@"
-    }
-  },
-  "TTS": "ak_MTU0NDM1OmhvYW5nbmdvY2hpZXB2aWRlb0BnbWFpbC5jb206UWZKNTVJd2NTN0k=.2f3435fdbc4e",
   "ACCOUNT_ID": "dF39CUyiX70eJtJu8nTA",
-  "RECAPTCHA": "xDMddfCrRiW7nq5CkR",
-  "PROJECT": "41bed3ad-7d07-43e4-999e-07d45a44dc",
+  "TTS": "ak_MTU0NDM1OmhvYW5nbmdvY2hpZXB2aWRlb0BnbWFpbC5jb206UWZKNTVJd2NTN0k=.2f3435fdbc4e",
   "API_KEY": "AIzaSyBITlonohRGGo9w-JEqf5eSOX2HISqg4q0",
   "cloneVideoModel": "gemini-2.5-flash",
   "cloneVideoApiKey": "AIzaSyBy8VcSJGdteeDhMn5fZR4mDnuCo__ExIo",
-  "CDP_PORT": 9222,
-  "CREDIT_LAST_CHECK_OK": false,
-  "CREDIT_MESSAGE": "400, message:\n  Can not decode content-encoding: br",
-  "CREDIT_REDIRECT_TO_PAYMENT": false,
-  "CREDIT_COUNT": 0,
-  "CREDIT_LIMIT": 0,
-  "CREDIT_LAST_CHECK_TS": 1773867012
+  "CDP_PORT": 9222
 }

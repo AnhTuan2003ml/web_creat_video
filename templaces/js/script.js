@@ -1231,7 +1231,7 @@ async function loadConfig() {
 
     try {
 
-        const response = await fetch('../../config/config.json');
+        const response = await fetch('/config/config.json');
 
         if (!response.ok) {
             throw new Error('Không thể tải file config.json');
@@ -1256,25 +1256,28 @@ async function loadConfig() {
         }
 
 
-        // MODEL AI
-        const modelSelect = document.querySelector('#sidebar .group-box select');
-
-        if (modelSelect && data.MODEL_AI !== undefined && data.MODEL_AI !== null) {
-            modelSelect.selectedIndex = Math.max(0, Number(data.MODEL_AI) - 1);
-        }
-
+        // Clone Video settings
         const cloneVideoModelSelect = document.getElementById('cloneVideoModelSelect');
-        if (cloneVideoModelSelect && data.MODEL_AI !== undefined && data.MODEL_AI !== null) {
-            cloneVideoModelSelect.selectedIndex = Math.max(0, Number(data.MODEL_AI));
+        if (cloneVideoModelSelect && data.cloneVideoModel !== undefined && data.cloneVideoModel !== null) {
+            try {
+                const desired = String(data.cloneVideoModel);
+                for (let i = 0; i < cloneVideoModelSelect.options.length; i++) {
+                    const opt = cloneVideoModelSelect.options[i];
+                    if (String(opt.value) === desired || String(opt.textContent || '').includes(desired)) {
+                        cloneVideoModelSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+            } catch (_) {}
         }
 
         const cloneVideoApiKey = document.getElementById('cloneVideoApiKey');
-        if (cloneVideoApiKey && data.API_CHAT) {
-            cloneVideoApiKey.value = data.API_CHAT;
+        if (cloneVideoApiKey) {
+            cloneVideoApiKey.value = data.cloneVideoApiKey || '';
         }
 
 
-        console.log("System Ready. Project:", data.PROJECT);
+        console.log("System Ready.");
 
         window.configData = data;
 

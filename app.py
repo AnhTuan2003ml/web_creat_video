@@ -40,10 +40,12 @@ from utils.control_script import (
     upload_temp_video_handler,
 )
 
-BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-MUSIC_DIR = os.path.join(BASE_DIR, "config", "Music")
-THEME_IMG_DIR = os.path.join(BASE_DIR, "templaces", "img")
-GENERATED_DIR = os.path.join(BASE_DIR, "generated")
+EXE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+BUNDLE_DIR = getattr(sys, '_MEIPASS', EXE_DIR)
+
+MUSIC_DIR = os.path.join(EXE_DIR, "config", "Music")
+THEME_IMG_DIR = os.path.join(BUNDLE_DIR, "templaces", "img")
+GENERATED_DIR = os.path.join(EXE_DIR, "generated")
 
 app = Flask(__name__, static_folder=".", static_url_path="/static")
 
@@ -79,7 +81,7 @@ def _run_coro_blocking(coro):
 
 def _read_account_id_from_config() -> str:
     try:
-        cfg_path = os.path.join(BASE_DIR, 'config', 'config.json')
+        cfg_path = os.path.join(EXE_DIR, 'config', 'config.json')
         if not os.path.exists(cfg_path):
             return ''
         with open(cfg_path, 'r', encoding='utf-8') as f:
@@ -137,9 +139,34 @@ _ASYNC_SINGLE_VIDEO_TASKS_LOCK = threading.Lock()
 _ASYNC_SINGLE_VIDEO_TASKS: Dict[str, Any] = {}
 
 
+def _force_exit_later(delay_sec: float = 0.4) -> None:
+    try:
+        delay = float(delay_sec or 0.0)
+    except Exception:
+        delay = 0.4
+
+    def _kill():
+        try:
+            time.sleep(max(0.0, delay))
+        except Exception:
+            pass
+        try:
+            os._exit(0)
+        except Exception:
+            pass
+
+    try:
+        threading.Thread(target=_kill, daemon=True).start()
+    except Exception:
+        try:
+            os._exit(0)
+        except Exception:
+            pass
+
+
 def _mark_tasks_cancelled_best_effort(task_ids=None):
     try:
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return
 
@@ -223,17 +250,17 @@ def _write_data_url_to_file(data_url: str, out_path: str) -> None:
 @app.route("/")
 def index():
     # Phục vụ giao diện chính
-    return send_from_directory(os.path.join(BASE_DIR, 'templaces', 'html'), "index.html")
+    return send_from_directory(os.path.join(BUNDLE_DIR, 'templaces', 'html'), "index.html")
 
 
 @app.route('/templaces/<path:filename>')
 def serve_templates(filename: str):
-    return send_from_directory(os.path.join(BASE_DIR, 'templaces'), filename)
+    return send_from_directory(os.path.join(BUNDLE_DIR, 'templaces'), filename)
 
 
 @app.route('/config/<path:filename>')
 def serve_config(filename: str):
-    return send_from_directory(os.path.join(BASE_DIR, 'config'), filename)
+    return send_from_directory(os.path.join(EXE_DIR, 'config'), filename)
 
 
 @app.route('/generated/<path:filename>')
@@ -356,7 +383,7 @@ def task_video():
         if not task_id:
             return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
 
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
 
@@ -405,7 +432,7 @@ def task_image():
         if not task_id:
             return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
 
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
 
@@ -460,7 +487,7 @@ def remerge_video():
         if not task_id:
             return jsonify({'ok': False, 'error': 'Missing task_id'}), 400
 
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
 
@@ -603,7 +630,7 @@ def save_video_results():
         if not task_ids:
             return jsonify({'ok': False, 'error': 'Missing task_ids'}), 400
 
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return jsonify({'ok': False, 'error': 'tasks.json not found'}), 404
 
@@ -732,7 +759,7 @@ def discard_video_results():
         if not task_ids:
             return jsonify({'ok': True, 'deleted': 0})
 
-        tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+        tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
         if not os.path.exists(tasks_file):
             return jsonify({'ok': True, 'deleted': 0})
 
@@ -797,25 +824,6 @@ def discard_video_results():
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
 
-def _force_exit_later(delay_s: float = 0.4):
-    try:
-        import os
-        import threading
-
-        def _force_exit():
-            try:
-                os._exit(0)
-            except Exception:
-                pass
-
-        try:
-            threading.Timer(float(delay_s), _force_exit).start()
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-
 @app.route('/exit_app', methods=['POST'])
 def exit_app():
     """Server-side exit: optionally save or discard video temp, then shutdown app."""
@@ -832,7 +840,7 @@ def exit_app():
         # Perform requested action best-effort
         if action == 'save' and task_ids:
             # Inline minimal copy of save_video_results behavior
-            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
             if os.path.exists(tasks_file):
                 try:
                     import json
@@ -877,8 +885,6 @@ def exit_app():
                         src = result_file
                     elif merged_out and os.path.exists(merged_out):
                         src = merged_out
-                    if not src:
-                        continue
 
                     batch_dir = ''
                     out_root = ''
@@ -887,6 +893,7 @@ def exit_app():
                             batch_dir = os.path.dirname(os.path.abspath(scenes_dir))
                             out_root = os.path.dirname(os.path.abspath(batch_dir))
                         else:
+                            # Fallback: infer from src path: ...\video_batch_xxx\<file>
                             p = os.path.dirname(os.path.abspath(src))
                             if os.path.basename(os.path.normpath(p)).startswith('video_batch_'):
                                 batch_dir = p
@@ -908,6 +915,7 @@ def exit_app():
                             t['saved_file'] = dst
                             changed = True
 
+                    # Schedule deletion of temp batch folder
                     if batch_dir:
                         base = os.path.basename(os.path.normpath(batch_dir))
                         if base.startswith('video_batch_'):
@@ -931,7 +939,7 @@ def exit_app():
         elif action == 'discard' and task_ids:
             # Reuse discard logic by calling it inline
             try:
-                tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
                 if os.path.exists(tasks_file):
                     try:
                         import json
@@ -1062,101 +1070,8 @@ def shutdown_app():
 @app.route('/create_images_batch_start', methods=['POST'])
 def create_images_batch_start():
     try:
-        with _CREATE_IMAGES_CANCEL_LOCK:
-            _CREATE_IMAGES_CANCEL.clear()
-
-        payload = request.get_json(silent=True) or {}
-        provider = str(payload.get('provider') or '').strip()
-        out_dir_label = str(payload.get('out_dir_label') or '')
-        # Normalize common issues from UI labels (quotes/hidden chars/newlines)
-        out_dir_label = out_dir_label.replace('\u200e', '').replace('\u200f', '').replace('\ufeff', '')
-        out_dir_label = out_dir_label.strip().strip('"').strip("'").strip()
-        try:
-            out_dir_label = os.path.normpath(out_dir_label)
-        except Exception:
-            out_dir_label = str(out_dir_label).strip()
-        max_tabs = payload.get('max_tabs', 5)
-        ratio = str(payload.get('ratio') or '9:16').strip()
-        tasks = payload.get('tasks')
-
-        if not isinstance(tasks, list) or len(tasks) == 0:
-            return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
-
-        if os.path.isabs(out_dir_label):
-            try:
-                os.makedirs(out_dir_label, exist_ok=True)
-            except Exception:
-                pass
-
-        if not (os.path.isabs(out_dir_label) and os.path.isdir(out_dir_label)):
-            return jsonify({'ok': False, 'error': 'Vui lòng chọn thư mục lưu kết quả'}), 400
-
-        out_folder_abs = out_dir_label
-
-        from utils.control_creat_image import run_tasks
-        from utils.control_profile import init_global_browser, get_global_browser
-        from utils.control_script import create_image_task
-
-        runner_tasks = []
-        mapping = []
-
-        for t in tasks:
-            form_id = str((t or {}).get('form_id') or '').strip()
-            img1 = str((t or {}).get('image1') or '')
-            img2 = str((t or {}).get('image2') or '')
-            prompt = str((t or {}).get('prompt') or '')
-
-            if not form_id:
-                continue
-
-            if not img1 or not prompt:
-                continue
-
-            out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.png'
-            out_abs = os.path.join(out_folder_abs, out_name)
-
-            task_id = create_image_task(f'Tạo ảnh: {out_name}', provider)
-            mapping.append({'form_id': form_id, 'task_id': task_id})
-            runner_tasks.append({
-                'task_id': task_id,
-                'form_id': form_id,
-                'image1_data': img1,
-                'image2_data': img2,
-                'prompt': prompt,
-                'out': out_abs,
-                'ratio': ratio,
-            })
-
-        if len(runner_tasks) == 0:
-            return jsonify({'ok': False, 'error': 'No valid tasks'}), 400
-
-        init_global_browser(provider=provider, kind='image')
-        gb = get_global_browser('image')
-
-        async def _run_on_global_ctx_async():
-            ctx = await gb.get_context_async()
-            if ctx is None:
-                raise RuntimeError('Global browser context is not initialized')
-            await run_tasks(
-                context=ctx,
-                provider=provider,
-                tasks=runner_tasks,
-                max_tabs=max_tabs,
-                aspect_ratio=ratio,
-                cancel_event=_CREATE_IMAGES_CANCEL,
-            )
-
-        future = asyncio.run_coroutine_threadsafe(_run_on_global_ctx_async(), gb._loop)
-        batch_key = uuid.uuid4().hex[:10]
-        with _ASYNC_IMAGE_BATCHES_LOCK:
-            _ASYNC_IMAGE_BATCHES[batch_key] = {
-                'provider': provider,
-                'future': future,
-                'mapping': mapping,
-                'out_folder_abs': out_folder_abs,
-            }
-
-        return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
+        # Backward-compatible alias: reuse the existing /create_images_batch implementation.
+        return create_images_batch()
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
@@ -1187,6 +1102,20 @@ def create_videos_batch_start():
 
         if not isinstance(tasks, list) or len(tasks) == 0:
             return jsonify({'ok': False, 'error': 'No tasks provided'}), 400
+
+        # Validate scenes content early to avoid creating temp output folders when missing prompt/image
+        try:
+            for t in tasks:
+                scenes = (t or {}).get('scenes')
+                if not isinstance(scenes, list) or len(scenes) == 0:
+                    continue
+                for idx, scene in enumerate(scenes):
+                    prompt = str((scene or {}).get('prompt') or '').strip()
+                    img_data = str((scene or {}).get('image') or '').strip()
+                    if not prompt or not img_data:
+                        return jsonify({'ok': False, 'error': f'Thiếu prompt/ảnh ở cảnh {idx + 1}'}), 400
+        except Exception:
+            pass
 
         if os.path.isabs(out_dir_label):
             try:
@@ -1225,7 +1154,7 @@ def create_videos_batch_start():
                     credit_limit = 0
 
                 try:
-                    tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                    tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
                     if os.path.exists(tasks_file):
                         import json
                         with open(tasks_file, 'r', encoding='utf-8') as f:
@@ -1388,7 +1317,7 @@ def cancel_create_videos_batch():
         # Fallback: infer batch folder from tasks.json scenes_dir (works even if server lost _ASYNC_VIDEO_BATCHES)
         try:
             if task_ids:
-                tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+                tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
                 if os.path.exists(tasks_file):
                     import json
                     with open(tasks_file, 'r', encoding='utf-8') as f:
@@ -1426,7 +1355,7 @@ def cancel_create_videos_batch():
 
         # Cleanup temp scenes folders for cancelled tasks
         try:
-            tasks_file = os.path.join(BASE_DIR, 'config', 'tasks.json')
+            tasks_file = os.path.join(EXE_DIR, 'config', 'tasks.json')
             if os.path.exists(tasks_file) and task_ids:
                 import json
                 with open(tasks_file, 'r', encoding='utf-8') as f:
@@ -1436,7 +1365,7 @@ def cancel_create_videos_batch():
                 except Exception:
                     tasks_data = []
                 wanted = {str(x) for x in task_ids if str(x).strip()}
-                for it in (tasks_data or []):
+                for it in tasks_data if isinstance(tasks_data, list) else []:
                     tid = str((it or {}).get('id') or '')
                     if tid not in wanted:
                         continue
@@ -1562,7 +1491,7 @@ def upload_music():
 
 @app.route("/uninstall", methods=["POST"])
 def uninstall():
-    base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else BASE_DIR
+    base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else EXE_DIR
     exe_path = os.path.join(base_dir, "uninstall.exe")
 
     if not os.path.exists(exe_path):
@@ -1739,9 +1668,6 @@ def setup_profile():
 @app.route('/create_images_batch', methods=['POST'])
 def create_images_batch():
     try:
-        with _CREATE_IMAGES_CANCEL_LOCK:
-            _CREATE_IMAGES_CANCEL.clear()
-
         payload = request.get_json(silent=True) or {}
         provider = str(payload.get('provider') or '').strip()
         out_dir_label = str(payload.get('out_dir_label') or '').strip()
@@ -1768,7 +1694,7 @@ def create_images_batch():
             is_custom_dir = False
 
         runner_tasks = []
-        results = []
+        mapping = []
 
         for t in tasks:
             form_id = str((t or {}).get('form_id') or '').strip()
@@ -1780,14 +1706,23 @@ def create_images_batch():
                 continue
 
             if not img1 or not prompt:
-                results.append({'form_id': form_id, 'url': None, 'error': 'Thiếu ảnh hoặc prompt'})
                 continue
 
             out_name = f'{form_id}_{uuid.uuid4().hex[:4]}.png'
             out_abs = os.path.join(out_folder_abs, out_name)
 
+            try:
+                from utils.control_script import create_image_task
+                task_id = create_image_task(f'Tạo ảnh: {out_name}', provider)
+            except Exception:
+                task_id = ''
+
+            if task_id:
+                mapping.append({'form_id': form_id, 'task_id': task_id})
+
             runner_tasks.append({
                 'form_id': form_id,
+                'task_id': task_id,
                 'image1_data': img1, # Truyền data url trực tiếp
                 'image2_data': img2,
                 'prompt': prompt,
@@ -1799,14 +1734,18 @@ def create_images_batch():
             })
 
         if len(runner_tasks) == 0:
-            return jsonify({'ok': True, 'results': results})
+            return jsonify({'ok': False, 'error': 'No valid tasks'}), 400
 
         from utils.control_creat_image import run_tasks
-        from utils.control_profile import init_global_browser, run_global, get_global_browser
+        from utils.control_profile import init_global_browser, get_global_browser
 
-        async def _run_on_global_ctx():
-            init_global_browser(provider=provider, kind='image')
-            gb = get_global_browser('image')
+        # Each batch gets its own cancel event so batches are independent.
+        cancel_event = threading.Event()
+
+        init_global_browser(provider=provider, kind='image')
+        gb = get_global_browser('image')
+
+        async def _run_on_global_ctx_async():
             ctx = await gb.get_context_async()
             if ctx is None:
                 raise RuntimeError('Global browser context is not initialized')
@@ -1816,40 +1755,70 @@ def create_images_batch():
                 tasks=runner_tasks,
                 max_tabs=max_tabs,
                 aspect_ratio=ratio,
-                cancel_event=_CREATE_IMAGES_CANCEL,
+                cancel_event=cancel_event,
             )
 
-        try:
-            run_global(_run_on_global_ctx(), timeout=3600, provider=provider, kind='image')
-        except asyncio.CancelledError:
-            return jsonify({'ok': False, 'error': 'Cancelled'}), 200
-        except Exception as exc:
-            return jsonify({'ok': False, 'error': str(exc)}), 500
+        future = asyncio.run_coroutine_threadsafe(_run_on_global_ctx_async(), gb._loop)
+        batch_key = uuid.uuid4().hex[:10]
+        with _ASYNC_IMAGE_BATCHES_LOCK:
+            _ASYNC_IMAGE_BATCHES[batch_key] = {
+                'provider': provider,
+                'future': future,
+                'mapping': mapping,
+                'cancel_event': cancel_event,
+            }
 
-        # Gom kết quả
-        for t in runner_tasks:
-            form_id = t.get('form_id')
-            out_abs = t.get('out')
-            if os.path.exists(out_abs):
-                try:
-                    if os.path.getsize(out_abs) <= 0:
-                        results.append({'form_id': form_id, 'url': None, 'error': 'Ảnh tải về bị rỗng'})
-                        continue
-                except Exception:
-                    results.append({'form_id': form_id, 'url': None, 'error': 'Ảnh tải về bị rỗng'})
-                    continue
-
-                with open(out_abs, "rb") as f:
-                    b64_data = base64.b64encode(f.read()).decode('utf-8')
-                    url = f"data:image/png;base64,{b64_data}"
-                results.append({'form_id': form_id, 'url': url, 'error': None})
-            else:
-                results.append({'form_id': form_id, 'url': None, 'error': 'Không tạo được ảnh'})
-
-        return jsonify({'ok': True, 'results': results})
+        return jsonify({'ok': True, 'batch_id': batch_key, 'tasks': mapping})
 
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+@app.route('/cancel_create_images_batch', methods=['POST'])
+def cancel_create_images_batch():
+    try:
+        payload = request.get_json(silent=True) or {}
+        batch_id = str(payload.get('batch_id') or '').strip()
+
+        task_ids = []
+        batches_to_cancel = []
+
+        with _ASYNC_IMAGE_BATCHES_LOCK:
+            if batch_id:
+                b = _ASYNC_IMAGE_BATCHES.get(batch_id)
+                if b:
+                    batches_to_cancel = [(batch_id, b)]
+            else:
+                batches_to_cancel = list((_ASYNC_IMAGE_BATCHES or {}).items())
+
+        for bid, b in batches_to_cancel:
+            try:
+                ce = (b or {}).get('cancel_event')
+                if ce is not None and getattr(ce, 'set', None):
+                    ce.set()
+            except Exception:
+                pass
+
+            for m in (b or {}).get('mapping') or []:
+                if m and m.get('task_id'):
+                    task_ids.append(str(m.get('task_id')))
+
+        _mark_tasks_cancelled_best_effort(task_ids if task_ids else None)
+
+        # Remove cancelled batches so UI doesn't keep polling
+        with _ASYNC_IMAGE_BATCHES_LOCK:
+            if batch_id:
+                try:
+                    _ASYNC_IMAGE_BATCHES.pop(batch_id, None)
+                except Exception:
+                    pass
+            else:
+                _ASYNC_IMAGE_BATCHES.clear()
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
 
 import webbrowser
 import threading

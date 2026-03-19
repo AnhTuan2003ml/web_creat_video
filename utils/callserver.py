@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import json
 import os
+import sys
 import uuid
 from typing import Dict, Any, Optional
 
@@ -9,7 +10,7 @@ from typing import Dict, Any, Optional
 API_BASE_URL = "https://server.autovideo9999.store"
 TOKEN = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
-# ✅ BYPASS KEYS
+# BYPASS KEYS
 BYPASS_KEYS = {
     "hiep2003",
     "tuan2003",
@@ -44,7 +45,7 @@ def is_bypass_key(user_id: str) -> bool:
 
 def _read_account_id_from_config() -> str:
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         cfg_path = os.path.join(base_dir, 'config', 'config.json')
         if not os.path.exists(cfg_path):
             return ''

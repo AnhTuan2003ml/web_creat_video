@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import sys
 import tempfile
 import shutil
 from typing import Any, Dict, List, Optional
@@ -75,7 +76,7 @@ def _decode_data_url_to_temp_file(data_url: str, suffix: str = ".png") -> str:
 
 def _read_account_id_from_config() -> str:
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         cfg_path = os.path.join(base_dir, 'config', 'config.json')
         if not os.path.exists(cfg_path):
             return ''

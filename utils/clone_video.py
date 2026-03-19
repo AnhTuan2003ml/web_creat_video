@@ -4,13 +4,15 @@ import re
 import time
 import requests
 
+import sys
+
 OPENAI_TIMEOUT = 90
 GEMINI_TIMEOUT = 180
 
 
 def _write_debug_response(tag: str, status_code, body: str):
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         out_dir = os.path.join(base_dir, "temp")
         os.makedirs(out_dir, exist_ok=True)
         ts = time.strftime("%Y%m%d_%H%M%S")

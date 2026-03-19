@@ -3,11 +3,13 @@ import shutil
 import subprocess
 from typing import List, Dict, Tuple
 
+import sys
+
 from flask import jsonify, send_from_directory, request
 from werkzeug.utils import secure_filename
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MUSIC_DIR = os.path.join(BASE_DIR, "config", "Music")
 UPLOAD_TMP_DIR = os.path.join(BASE_DIR, "tmp_uploads")
 
