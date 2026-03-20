@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-SHORTCUT_NAME = "Creat_Video"
+SHORTCUT_NAME = "VideoCreator"
 
 
 def _desktop_shortcut_path() -> Path:
@@ -18,6 +18,11 @@ def _desktop_shortcut_path() -> Path:
 
 
 def main():
+    # Chỉ chạy logic xóa khi là file build (frozen)
+    if not getattr(sys, "frozen", False):
+        print("Đang chạy ở chế độ source, bỏ qua gỡ cài đặt thực tế.")
+        return
+
     if getattr(sys, "frozen", False):
         exe_path = Path(sys.executable)
     else:
@@ -26,7 +31,7 @@ def main():
     app_dir = exe_path.parent
     exe_name = exe_path.name
 
-    bat_path = Path(tempfile.gettempdir()) / "creat_video_uninstall_runner.bat"
+    bat_path = Path(tempfile.gettempdir()) / "video_creator_uninstall_runner.bat"
     lnk_path = _desktop_shortcut_path()
 
     app_dir_s = str(app_dir)
@@ -57,7 +62,7 @@ rmdir /s /q "{app_dir_s}" >nul 2>nul
 rem ===== Success message (PowerShell MessageBox) =====
 powershell -NoProfile -ExecutionPolicy Bypass -STA -Command ^
   "Add-Type -AssemblyName System.Windows.Forms; " ^
-  "[System.Windows.Forms.MessageBox]::Show('Gỡ cài đặt thành công!','Creat_Video'," ^
+  "[System.Windows.Forms.MessageBox]::Show('Gỡ cài đặt thành công!','VideoCreator'," ^
   "[System.Windows.Forms.MessageBoxButtons]::OK," ^
   "[System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null"
 

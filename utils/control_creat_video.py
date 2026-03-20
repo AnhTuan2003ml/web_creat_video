@@ -5,9 +5,13 @@ import os
 import sys
 import tempfile
 import shutil
+import asyncio
 from typing import Any, Dict, List, Optional
+import os
+import json
+import uuid
 
-from utils.grok.creat_video import VideoJob, create_video_grok
+from utils.grok.creat_video import VideoJob, create_video_grok, _ACTIVE_VIDEO_PAGES
 from utils.control_script import update_task_status
 from utils.control_ffmpeg import merge_video_clips, TRANSCODE_DIR, apply_background_music
 
@@ -104,6 +108,14 @@ async def _run_one_video_task(
 
     if not task_id:
         return None
+
+    # Lấy batch_dir sớm để có thể xóa khi hủy
+    batch_dir = ""
+    try:
+        if merged_out:
+            batch_dir = os.path.dirname(os.path.abspath(merged_out))
+    except Exception:
+        pass
     if not isinstance(scenes, list) or len(scenes) == 0:
         update_task_status(task_id, "failed", error="No scenes")
         return None
@@ -201,6 +213,16 @@ async def _run_one_video_task(
             # Check cancellation
             if is_video_task_cancelled(task_id) or (cancel_event and cancel_event.is_set()):
                 update_task_status(task_id, "cancelled", error="Đã hủy")
+                # Đóng tab ngay lập tức nếu đang chạy
+                try:
+                    page = _ACTIVE_VIDEO_PAGES.get(task_id)
+                    if page and not page.is_closed():
+                        await page.close()
+                except Exception:
+                    pass
+                # Xóa thư mục batch ngay lập tức
+                if batch_dir and os.path.isdir(batch_dir):
+                    shutil.rmtree(batch_dir, ignore_errors=True)
                 raise asyncio.CancelledError()
 
             prompt = str(scene.get("prompt") or "").strip()
@@ -273,6 +295,15 @@ async def _run_one_video_task(
         # Final checks before merging
         if is_video_task_cancelled(task_id) or (cancel_event and cancel_event.is_set()):
             update_task_status(task_id, "cancelled", error="Đã hủy")
+            # Đóng tab và xóa thư mục khi hủy ở giai đoạn cuối
+            try:
+                page = _ACTIVE_VIDEO_PAGES.get(task_id)
+                if page and not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+            if batch_dir and os.path.isdir(batch_dir):
+                shutil.rmtree(batch_dir, ignore_errors=True)
             raise asyncio.CancelledError()
 
         # Fix 8: Verify all clips exist before FFmpeg merge

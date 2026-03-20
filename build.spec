@@ -13,6 +13,8 @@ a = Analysis(
         'asyncio',
         'playwright',
         'flask',
+        'update_checker',
+        'silent_download',
         'json',
         'os',
         'shutil',
@@ -58,5 +60,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='ico/logo.ico',
+    icon='ico\\logo.ico',
 )

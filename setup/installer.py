@@ -8,6 +8,7 @@ import threading
 import queue
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import tarfile
 
 try:
     import requests
@@ -20,13 +21,19 @@ except ImportError:
 # =======================
 DOWNLOAD_URL = "https://github.com/AnhTuan2003ml/creat_video/releases/latest/download/creat_video_start.zip"
 
-EXE_NAME = "Creat_Video.exe"
-APP_FOLDER_NAME = "Creat_Video"
-SHORTCUT_NAME = "Creat_Video"
-ICON_FILE = "bg_menu.ico"
+FFMPEG_TAR_XZ_URL = "https://ffmpeg.org/releases/ffmpeg-8.1.tar.xz"
+FFMPEG_DRIVE_URL = "https://drive.google.com/uc?export=download&id=1pKeIq96iowpGnoymY7E7nnQpiZqOVJre"
+FFMPEG_WIN_ZIP_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
+EXE_NAME = "VideoCreator.exe"
+APP_FOLDER_NAME = "VideoCreator"
+SHORTCUT_NAME = "VideoCreator"
+ICON_FILE = "logo.ico"
+
+
 # =======================
-
-
+# HELPERS
+# =======================
 def is_windows() -> bool:
     return os.name == "nt"
 
@@ -155,11 +162,198 @@ def _win_subprocess_kwargs():
     return kw
 
 
+def _run_cmd_capture(cmd: list[str], cwd: str | None = None, timeout_sec: float = 10.0) -> tuple[int, str]:
+    try:
+        p = subprocess.run(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=float(timeout_sec),
+            **_win_subprocess_kwargs(),
+        )
+        return int(p.returncode), str(p.stdout or '')
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def is_ffmpeg_available() -> bool:
+    try:
+        rc, _out = _run_cmd_capture(["ffmpeg", "-version"], timeout_sec=5.0)
+        return rc == 0
+    except Exception:
+        return False
+
+
+def _download_gdrive_file(url: str, out_path: str, progress_cb=None, cancel_event: threading.Event | None = None):
+    ensure_requests()
+    sess = requests.Session()
+
+    def _save_stream(resp):
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length") or 0)
+        got = 0
+        with open(out_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("Đã huỷ cài đặt.")
+                if not chunk:
+                    continue
+                f.write(chunk)
+                got += len(chunk)
+                if progress_cb:
+                    progress_cb(got, total)
+
+    r1 = sess.get(url, stream=True, timeout=120)
+    token = None
+    try:
+        for k, v in (r1.cookies or {}).items():
+            if str(k).startswith('download_warning'):
+                token = v
+                break
+    except Exception:
+        token = None
+
+    if token:
+        r1.close()
+        r2 = sess.get(url, params={'confirm': token}, stream=True, timeout=120)
+        _save_stream(r2)
+        try:
+            r2.close()
+        except Exception:
+            pass
+        return
+
+    _save_stream(r1)
+    try:
+        r1.close()
+    except Exception:
+        pass
+
+
+def _extract_archive(archive_path: str, dest_dir: str):
+    os.makedirs(dest_dir, exist_ok=True)
+    lp = archive_path.lower()
+    if lp.endswith('.zip'):
+        extract_zip(archive_path, dest_dir)
+        return
+    if lp.endswith('.tar.xz') or lp.endswith('.txz'):
+        with tarfile.open(archive_path, mode='r:xz') as tf:
+            tf.extractall(dest_dir)
+        return
+    raise RuntimeError(f"Không hỗ trợ định dạng gói: {os.path.basename(archive_path)}")
+
+
+def _find_ffmpeg_exe(root_dir: str) -> str | None:
+    try:
+        for r, _dirs, files in os.walk(root_dir):
+            for fn in files:
+                if fn.lower() == 'ffmpeg.exe':
+                    return os.path.join(r, fn)
+    except Exception:
+        pass
+    return None
+
+
+def _add_to_user_path(bin_dir: str):
+    if os.name != 'nt':
+        return
+    try:
+        import winreg
+
+        bin_dir = os.path.abspath(bin_dir)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ) as k:
+            try:
+                cur, _typ = winreg.QueryValueEx(k, "Path")
+            except FileNotFoundError:
+                cur = ""
+
+        cur_s = str(cur or "")
+        parts = [p for p in cur_s.split(';') if p.strip()]
+        norm = {os.path.normcase(os.path.abspath(p)) for p in parts}
+        if os.path.normcase(bin_dir) in norm:
+            return
+        parts.append(bin_dir)
+        new_val = ';'.join(parts)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE) as k2:
+            winreg.SetValueEx(k2, "Path", 0, winreg.REG_EXPAND_SZ, new_val)
+
+        try:
+            subprocess.run(["setx", "Path", new_val], check=False, capture_output=True, text=True, **_win_subprocess_kwargs())
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def ensure_ffmpeg_installed(install_dir: str, progress_cb=None, cancel_event: threading.Event | None = None) -> str:
+    if is_ffmpeg_available():
+        rc, out = _run_cmd_capture(["ffmpeg", "-version"], timeout_sec=5.0)
+        if rc == 0:
+            line = (out or '').splitlines()[0] if out else ''
+            return line
+        return "ffmpeg"
+
+    tools_dir = os.path.join(install_dir, 'tools', 'ffmpeg')
+    bin_dir = os.path.join(tools_dir, 'bin')
+    os.makedirs(bin_dir, exist_ok=True)
+
+    tmp = tempfile.mkdtemp(prefix='creat_video_ffmpeg_')
+    try:
+        pkg_path = os.path.join(tmp, 'ffmpeg.zip')
+        try:
+            _download_gdrive_file(FFMPEG_DRIVE_URL, pkg_path, progress_cb=progress_cb, cancel_event=cancel_event)
+        except Exception:
+            try:
+                pkg_path = os.path.join(tmp, 'ffmpeg-release-essentials.zip')
+                download_file(FFMPEG_WIN_ZIP_URL, pkg_path, progress_cb=progress_cb, cancel_event=cancel_event)
+            except Exception:
+                # NOTE: ffmpeg.org tar.xz is SOURCE code and usually does NOT contain ffmpeg.exe.
+                pkg_path = os.path.join(tmp, 'ffmpeg-8.1.tar.xz')
+                download_file(FFMPEG_TAR_XZ_URL, pkg_path, progress_cb=progress_cb, cancel_event=cancel_event)
+
+        extract_dir = os.path.join(tmp, 'extract')
+        _extract_archive(pkg_path, extract_dir)
+
+        ffmpeg_exe = _find_ffmpeg_exe(extract_dir)
+        if not ffmpeg_exe or not os.path.isfile(ffmpeg_exe):
+            raise RuntimeError('Không tìm thấy ffmpeg.exe trong gói tải về. Vui lòng cung cấp link FFmpeg Windows dạng .zip (có sẵn ffmpeg.exe).')
+
+        src_bin = os.path.dirname(ffmpeg_exe)
+        for fn in os.listdir(src_bin):
+            sp = os.path.join(src_bin, fn)
+            dp = os.path.join(bin_dir, fn)
+            try:
+                if os.path.isfile(sp):
+                    shutil.copy2(sp, dp)
+            except Exception:
+                pass
+
+        _add_to_user_path(bin_dir)
+        os.environ['PATH'] = bin_dir + ';' + (os.environ.get('PATH') or '')
+
+        rc, out = _run_cmd_capture(["ffmpeg", "-version"], timeout_sec=5.0)
+        if rc != 0:
+            rc2, out2 = _run_cmd_capture([os.path.join(bin_dir, 'ffmpeg.exe'), '-version'], timeout_sec=5.0)
+            if rc2 != 0:
+                raise RuntimeError(f'ffmpeg cài xong nhưng không chạy được: {out2 or out}')
+            out = out2
+
+        line = (out or '').splitlines()[0] if out else 'ffmpeg'
+        return line
+    finally:
+        try:
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:
+            pass
+
+
 class InstallerUI(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Creat_Video Installer")
+        self.title("VideoCreator Installer")
 
         # ===== ICON (bg_menu.ico) =====
         try:
@@ -291,13 +485,14 @@ class InstallerUI(tk.Tk):
         inner = ttk.Frame(left, style="Panel.TFrame", padding=(pad, 16))
         inner.pack(fill="both", expand=True)
 
-        ttk.Label(inner, text="CREAT_VIDEO", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(inner, text="VideoCreator", style="Title.TLabel").pack(anchor="w")
         ttk.Label(inner, text="Trình cài đặt", style="Sub.TLabel").pack(anchor="w", pady=(4, 16))
 
         self._step_vars = {
             "download": tk.StringVar(value="• Tải gói cài đặt"),
             "extract": tk.StringVar(value="• Giải nén & cập nhật"),
             "shortcut": tk.StringVar(value="• Tạo shortcut"),
+            "ffmpeg": tk.StringVar(value="• Cài FFmpeg"),
             "playwright": tk.StringVar(value="• Cài Playwright"),
             "done": tk.StringVar(value="• Hoàn tất"),
         }
@@ -323,7 +518,7 @@ class InstallerUI(tk.Tk):
         right.columnconfigure(0, weight=1)
 
         # top title
-        ttk.Label(right, text="Cài đặt Creat_Video", style="Text.TLabel", font=("Segoe UI", 14, "bold")).grid(
+        ttk.Label(right, text="Cài đặt VideoCreator", style="Text.TLabel", font=("Segoe UI", 14, "bold")).grid(
             row=0, column=0, sticky="w"
         )
         ttk.Label(
@@ -544,6 +739,26 @@ class InstallerUI(tk.Tk):
                     os.path.dirname(exe_path),
                     icon_path=exe_path,
                 )
+
+            # STEP: ffmpeg
+            self._post("step", "ffmpeg")
+            self._post("status", "Đang kiểm tra FFmpeg...")
+            self._post("progress", 0)
+
+            def on_ffmpeg_progress(got, total):
+                if total > 0:
+                    pct = int(got * 100 / total)
+                    self._post("progress", pct)
+                    self._post("status", f"Đang tải FFmpeg... {pct}%")
+                else:
+                    self._post("status", f"Đang tải FFmpeg... {got/1024/1024:.1f} MB")
+
+            ffmpeg_info = ensure_ffmpeg_installed(install_dir, progress_cb=on_ffmpeg_progress, cancel_event=self._cancel)
+            self._post("status", f"FFmpeg OK: {ffmpeg_info}")
+
+            if self._cancel.is_set():
+                self._post("cancelled", None)
+                return
 
             # STEP: playwright
             self._post("step", "playwright")

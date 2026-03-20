@@ -7,6 +7,7 @@ import os
 import sys
 import subprocess
 import threading
+import tempfile
 from typing import Dict, Any
 
 import json
@@ -45,6 +46,8 @@ from utils.control_script import (
     upload_temp_video_handler,
 )
 
+from update_checker import start_background_update_check, check_and_prepare_update_once
+
 EXE_DIR = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
 BUNDLE_DIR = getattr(sys, '_MEIPASS', EXE_DIR)
 
@@ -53,6 +56,43 @@ THEME_IMG_DIR = os.path.join(BUNDLE_DIR, "templaces", "img")
 GENERATED_DIR = os.path.join(EXE_DIR, "generated")
 
 app = Flask(__name__, static_folder=".", static_url_path="/static")
+
+
+@app.route('/video', methods=['GET', 'HEAD'])
+def video_only_page():
+    html = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video</title>
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    background:#000;
+    height:100%;
+}
+iframe{
+    width:100vw;
+    height:100vh;
+    border:0;
+}
+</style>
+
+</head>
+<body>
+
+<iframe 
+src="https://www.youtube.com/embed/Bu_2X1vcev8?autoplay=1&controls=1&loop=1&playlist=Bu_2X1vcev8"
+allow="autoplay; encrypted-media"
+allowfullscreen>
+</iframe>
+
+</body>
+</html>"""
+    return html
 
 
 _ACCOUNT_CHECK_CACHE_LOCK = threading.Lock()
@@ -1051,31 +1091,66 @@ def exit_app():
                 pass
 
         # Then shutdown
-        try:
-            from utils.control_profile import close_global_browser
-            try:
-                close_global_browser('video')
-            except Exception:
-                pass
-            try:
-                close_global_browser('image')
-            except Exception:
-                pass
-            try:
-                close_global_browser('default')
-            except Exception:
-                pass
-        except Exception:
-            pass
+        _perform_app_cleanup()
 
-        func = request.environ.get('werkzeug.server.shutdown')
-        if callable(func):
-            try:
-                func()
-            except Exception:
-                pass
-
+        # Force-exit the process to ensure the app closes
         _force_exit_later(0.4)
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
+def _perform_app_cleanup():
+    """Logic dọn dẹp chuẩn: đóng trình duyệt, dọn dẹp task và đẩy log."""
+    try:
+        from utils.control_profile import close_global_browser
+        for kind in ['video', 'image', 'default']:
+            try:
+                close_global_browser(kind)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        # Đảm bảo đẩy hết dữ liệu log ra terminal trước khi đóng
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+@app.route('/uninstall', methods=['POST'])
+def uninstall():
+    try:
+        if not getattr(sys, 'frozen', False):
+            return jsonify({'ok': False, 'error': 'Chỉ hỗ trợ khi chạy bản build (EXE)'}), 400
+        if os.name != 'nt':
+            return jsonify({'ok': False, 'error': 'Only supported on Windows'}), 400
+
+        base_dir = os.path.dirname(sys.executable)
+        pid = os.getpid()
+
+        bat_path = os.path.join(tempfile.gettempdir(), f"video_creator_self_uninstall_{uuid.uuid4().hex[:8]}.bat")
+
+        bat_content = f"""@echo off
+setlocal
+timeout /t 1 /nobreak > nul
+taskkill /f /pid {pid} > nul 2>&1
+timeout /t 1 /nobreak > nul
+
+del /f /q "%USERPROFILE%\Desktop\VideoCreator.lnk" > nul 2>&1
+del /f /q "%PUBLIC%\Desktop\VideoCreator.lnk" > nul 2>&1
+del /f /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\VideoCreator.lnk" > nul 2>&1
+del /f /q "%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\VideoCreator.lnk" > nul 2>&1
+
+rmdir /s /q "{base_dir}" > nul 2>&1
+del "%~f0" > nul 2>&1
+"""
+        with open(bat_path, 'w', encoding='utf-8') as f:
+            f.write(bat_content)
+
+        subprocess.Popen(["cmd", "/c", bat_path], creationflags=subprocess.CREATE_NO_WINDOW)
         return jsonify({'ok': True})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
@@ -1112,6 +1187,10 @@ def shutdown_app():
                 func()
             except Exception:
                 pass
+
+        # Ensure stdout/stderr are flushed and available for console
+        sys.stdout.flush()
+        sys.stderr.flush()
 
         # Force-exit the process to ensure the app closes (debug server may keep running)
         _force_exit_later(0.4)
@@ -1478,6 +1557,7 @@ def open_grok_login():
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 500
 
+
 @app.route('/pick_result_folder', methods=['POST'])
 def pick_result_folder():
     try:
@@ -1554,22 +1634,6 @@ def add_music():
 @app.route("/uploadmusic", methods=["POST"])
 def upload_music():
     return upload_music_handler()
-
-
-@app.route("/uninstall", methods=["POST"])
-def uninstall():
-    base_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else EXE_DIR
-    exe_path = os.path.join(base_dir, "uninstall.exe")
-
-    if not os.path.exists(exe_path):
-        return jsonify({"ok": False, "error": "uninstall.exe not found"}), 404
-
-    try:
-        subprocess.Popen([exe_path], cwd=base_dir)
-    except OSError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-    return jsonify({"ok": True})
 
 
 @app.route("/transcoded/<path:filename>")
@@ -1960,8 +2024,67 @@ def _disable_windows_console_quickedit() -> None:
         pass
 
 
+def _maybe_check_and_apply_update_on_startup() -> None:
+    try:
+        if not getattr(sys, 'frozen', False):
+            return
+        if os.name != 'nt':
+            return
+
+        # Apply if already prepared
+        ready_path = os.path.join(EXE_DIR, 'temp', 'update_ready.json')
+        if os.path.isfile(ready_path):
+            _maybe_apply_silent_update_on_startup()
+            return
+
+        # Startup immediate check (blocking, best-effort)
+        try:
+            prepared = bool(check_and_prepare_update_once(app_dir=EXE_DIR))
+        except Exception:
+            prepared = False
+
+        if not prepared:
+            return
+
+        if os.path.isfile(ready_path):
+            _maybe_apply_silent_update_on_startup()
+    except Exception:
+        pass
+
+
+def _maybe_apply_silent_update_on_startup() -> None:
+    try:
+        if not getattr(sys, 'frozen', False):
+            return
+        if os.name != 'nt':
+            return
+
+        ready_path = os.path.join(EXE_DIR, 'temp', 'update_ready.json')
+        if not os.path.isfile(ready_path):
+            return
+
+        updater = os.path.join(EXE_DIR, 'update.exe')
+        if not os.path.isfile(updater):
+            return
+
+        try:
+            subprocess.Popen(
+                [updater, '--apply-ready', ready_path, '--app', sys.executable],
+                cwd=EXE_DIR,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+        except Exception:
+            return
+
+        _force_exit_later(0.4)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     _disable_windows_console_quickedit()
+
+    _maybe_check_and_apply_update_on_startup()
 
     try:
         import socket
@@ -1984,6 +2107,6 @@ if __name__ == "__main__":
     except Exception:
         pass
     threading.Timer(1.0, open_browser).start()
-    _start_client_watchdog(timeout_sec=60.0, check_interval=5.0)
+    _start_client_watchdog(timeout_sec=120.0, check_interval=5.0)
 
     app.run(host="127.0.0.1", port=5000, debug=(not getattr(sys, 'frozen', False)), use_reloader=False, threaded=True)

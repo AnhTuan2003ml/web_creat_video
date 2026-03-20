@@ -180,3 +180,5 @@ config/tasks.json
 profile/
 utils/__pycache__/
 utils/grok/__pycache__/
+!setup/*.spec
+!*.spec

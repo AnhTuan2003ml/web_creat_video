@@ -526,6 +526,7 @@ async function _loadVideoScript(fileName, videoIndex) {
     }
 }
 
+
 function _updateScriptBadge(index) {
     const rowEl = document.getElementById(`video-row-${index}`);
     const badge = document.getElementById(`video-script-badge-${index}`);

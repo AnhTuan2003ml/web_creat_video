@@ -206,19 +206,31 @@ function initHomePage() {
             const ok = await askUninstallConfirm();
             if (!ok) return;
 
-            fetch('/uninstall', {
-                method: 'POST',
-            })
-                .then(res => res.json().then(body => ({ ok: res.ok, body })))
-                .then(({ ok, body }) => {
-                    if (!ok || !body.ok) {
-                        console.error('Gỡ cài đặt thất bại:', body.error);
-                        return;
-                    }
-                })
-                .catch(err => {
-                    console.error('Lỗi gọi /uninstall:', err);
-                });
+            try {
+                const res = await fetch('/uninstall', { method: 'POST' });
+                const body = await res.json();
+                
+                if (res.ok && body.ok) {
+                    // Bước 2: Gọi api /exit_app và chạy file bat (thông qua trình duyệt mở file hoặc tự thoát)
+                    // Ở đây /exit_app sẽ làm app dừng lại. 
+                    // File bat đã được tạo ở bước 1 và sẽ tự chạy uninstall.exe sau 2s
+                    
+                    fetch('/exit_app', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'exit' })
+                    });
+
+                    // Thông báo cho người dùng và đóng cửa sổ
+                    alert('Ứng dụng sẽ đóng để thực hiện gỡ cài đặt.');
+                    window.close();
+                } else {
+                    console.error('Gỡ cài đặt thất bại:', body.error);
+                    alert('Lỗi: ' + (body.error || 'Không thể khởi tạo gỡ cài đặt'));
+                }
+            } catch (err) {
+                console.error('Lỗi gọi /uninstall:', err);
+            }
         };
     }
 }

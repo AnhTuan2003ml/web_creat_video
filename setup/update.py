@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 import urllib.request
@@ -24,6 +25,77 @@ UA = "CreatVideoUpdater"
 APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 
 SKIP_NAMES = {"update.py", "update.exe"}
+
+
+def _read_json_tolerant(path: Path):
+    try:
+        raw = path.read_text(encoding='utf-8-sig', errors='replace')
+    except Exception:
+        return None
+
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        # Best-effort: try to locate a JSON object boundaries
+        try:
+            s = raw.find('{')
+            e = raw.rfind('}')
+            if s >= 0 and e > s:
+                obj = json.loads(raw[s:e + 1])
+                return obj if isinstance(obj, dict) else None
+        except Exception:
+            pass
+    return None
+
+
+def ensure_runtime_config(app_dir: Path) -> None:
+    cfg_dir = app_dir / "config"
+    cfg_path = cfg_dir / "config.json"
+    try:
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    if cfg_path.exists():
+        return
+
+    try:
+        cfg_path.write_text('{\n  "ACCOUNT_ID": ""\n}\n', encoding="utf-8")
+        print("Created missing config.json ->", cfg_path)
+    except Exception as exc:
+        print("Failed to create config.json:", exc)
+
+
+def _pick_app_exe(app_dir: Path) -> Path | None:
+    try:
+        exes = []
+        for p in app_dir.glob("*.exe"):
+            if p.name.lower() in ("update.exe",):
+                continue
+            exes.append(p)
+        exes.sort(key=lambda x: x.name.lower())
+        return exes[0] if exes else None
+    except Exception:
+        return None
+
+
+def _launch_app(app_dir: Path, app_path: Path | None) -> None:
+    try:
+        target = app_path if app_path else _pick_app_exe(app_dir)
+        if not target or not target.exists():
+            print("No app exe found to relaunch.")
+            return
+
+        print("Launching app ->", target)
+        import subprocess
+        # Sử dụng shell=True và khởi chạy trực tiếp để Windows nhận diện console từ build.spec
+        if os.name == 'nt':
+            subprocess.Popen([str(target)], cwd=str(app_dir), creationflags=subprocess.CREATE_NEW_CONSOLE)
+        else:
+            subprocess.Popen([str(target)], cwd=str(app_dir))
+    except Exception as exc:
+        print("Failed to launch app:", exc)
 
 # ---------------- Version helpers ----------------
 
@@ -121,6 +193,114 @@ def copy_overwrite(src_root: Path, dst_root: Path):
 
         shutil.copy2(src, dst)
 
+
+def copy_overwrite_retry(src_root: Path, dst_root: Path, retries: int = 5, delay_sec: float = 0.6):
+    for src in src_root.rglob('*'):
+        rel = src.relative_to(src_root)
+        dst = dst_root / rel
+
+        if src.is_file() and src.name.lower() in SKIP_NAMES:
+            continue
+
+        if src.is_dir():
+            try:
+                dst.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            continue
+
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        last_exc = None
+        for i in range(max(1, int(retries))):
+            try:
+                if dst.exists():
+                    try:
+                        os.chmod(dst, 0o666)
+                    except Exception:
+                        pass
+                shutil.copy2(src, dst)
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                try:
+                    time.sleep(float(delay_sec) + (i * 0.2))
+                except Exception:
+                    pass
+
+        if last_exc is not None:
+            raise last_exc
+
+
+def apply_ready_update(app_dir: Path, ready_json_path: Path, app_arg: str | None = None) -> int:
+    """Apply a previously downloaded update prepared by the main app.
+
+    ready_json expected:
+      {"version": "1.2.0", "path": "C:/.../temp/update/..."}
+    """
+    try:
+        meta = _read_json_tolerant(ready_json_path) or {}
+    except Exception:
+        meta = {}
+
+    version = normalize_tag(str(meta.get('version') or '').strip())
+    payload_path = str(meta.get('path') or '').strip()
+
+    if not payload_path:
+        print('Invalid update_ready.json: missing path')
+        return 1
+
+    payload_root = Path(payload_path)
+    if not payload_root.exists() or not payload_root.is_dir():
+        print('Payload path not found:', payload_root)
+        return 1
+
+    # Wait a bit to ensure the main app process has exited and released file locks
+    try:
+        time.sleep(2.0)
+    except Exception:
+        pass
+
+    print('Applying update from:', payload_root)
+    copy_overwrite_retry(payload_root, app_dir)
+
+    if version and version != '0.0.0':
+        print('Updating config/config.json VERSION...')
+        update_config_version(app_dir, version)
+
+    # Cleanup temp folder and ready flag
+    try:
+        # If payload_root is inside a temp folder, remove its parent "temp/update" safely
+        try:
+            if payload_root.exists():
+                shutil.rmtree(payload_root, ignore_errors=True)
+        except Exception:
+            pass
+        try:
+            if ready_json_path.exists():
+                ready_json_path.unlink(missing_ok=True)
+        except Exception:
+            try:
+                if ready_json_path.exists():
+                    ready_json_path.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    ensure_runtime_config(app_dir)
+
+    try:
+        app_path = Path(app_arg).resolve() if app_arg else None
+    except Exception:
+        app_path = None
+    _launch_app(app_dir, app_path)
+    return 0
+
 # ---------------- Config VERSION update (tolerant) ----------------
 
 def read_text_utf8sig(path: Path) -> str:
@@ -139,7 +319,7 @@ def try_parse_json(text: str):
         return None
 
 def update_config_version(app_dir: Path, new_version: str):
-    cfg = app_dir / "_internal" / "config.json"
+    cfg = app_dir / "config" / "config.json"
     if not cfg.exists():
         print("config.json not found:", cfg)
         return False
@@ -190,15 +370,96 @@ def update_config_version(app_dir: Path, new_version: str):
     print("Prepended VERSION (best-effort) ->", new_version)
     return True
 
+
+def _version_key(v: str):
+    try:
+        parts = []
+        for x in str(v or '').strip().split('.'):
+            m = re.match(r'^(\d+)', x.strip())
+            parts.append(int(m.group(1)) if m else 0)
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:6])
+    except Exception:
+        return (0, 0, 0)
+
+
+def read_local_version(app_dir: Path) -> str:
+    cfg = app_dir / "config" / "config.json"
+    if not cfg.exists():
+        return "0.0.0"
+    try:
+        raw = read_text_utf8sig(cfg)
+        obj = try_parse_json(raw)
+        if isinstance(obj, dict):
+            return normalize_tag(str(obj.get('VERSION') or '').strip())
+        m = re.search(r'"VERSION"\s*:\s*"([^"]+)"', raw, flags=re.IGNORECASE)
+        if m:
+            return normalize_tag(m.group(1))
+    except Exception:
+        pass
+    return "0.0.0"
+
+
+def is_update_available(app_dir: Path, latest_version: str) -> bool:
+    try:
+        local_v = read_local_version(app_dir)
+        return _version_key(latest_version) > _version_key(local_v)
+    except Exception:
+        return False
+
 # ---------------- Main ----------------
 
 def main():
     print("APP_DIR:", APP_DIR)
 
+    app_arg = None
+    check_only = False
+    apply_ready = None
+    try:
+        if "--app" in sys.argv:
+            idx = sys.argv.index("--app")
+            if idx + 1 < len(sys.argv):
+                app_arg = sys.argv[idx + 1]
+    except Exception:
+        app_arg = None
+
+    try:
+        if "--apply-ready" in sys.argv:
+            idx = sys.argv.index("--apply-ready")
+            if idx + 1 < len(sys.argv):
+                apply_ready = sys.argv[idx + 1]
+    except Exception:
+        apply_ready = None
+
+    try:
+        check_only = "--check-only" in sys.argv
+    except Exception:
+        check_only = False
+
+    if apply_ready:
+        try:
+            return apply_ready_update(APP_DIR, Path(apply_ready), app_arg=app_arg)
+        except Exception as exc:
+            print('Failed to apply-ready update:', exc)
+            return 1
+
     release = get_latest_release()
     tag = release.get("tag_name", "")
     latest_version = normalize_tag(tag)
     print("Latest release:", tag)
+
+    if check_only:
+        try:
+            ensure_runtime_config(APP_DIR)
+        except Exception:
+            pass
+
+        if is_update_available(APP_DIR, latest_version):
+            print("Update available ->", latest_version)
+            return 2
+        print("Already up-to-date ->", latest_version)
+        return 0
 
     zip_url = pick_zip_asset(release)
     if not zip_url:
@@ -226,11 +487,19 @@ def main():
     print("Copy overwrite into APP_DIR...")
     copy_overwrite(payload_root, APP_DIR)
 
-    print("Updating _internal/config.json VERSION...")
+    print("Updating config/config.json VERSION...")
     update_config_version(APP_DIR, latest_version)
+
+    ensure_runtime_config(APP_DIR)
 
     print("Update done.")
     shutil.rmtree(work_dir, ignore_errors=True)
+
+    try:
+        app_path = Path(app_arg).resolve() if app_arg else None
+    except Exception:
+        app_path = None
+    _launch_app(APP_DIR, app_path)
     return 0
 
 if __name__ == "__main__":
